@@ -1,0 +1,87 @@
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  background: var(--td-bg-color-page);
+  color: var(--td-text-color-primary);
+}
+
+.admin-shell {
+  min-height: 100%;
+}
+
+.admin-aside {
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--td-component-stroke);
+  background: var(--td-bg-color-container);
+}
+
+.brand {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  height: 64px;
+  padding: 0 20px;
+  border-bottom: 1px solid var(--td-component-stroke);
+}
+
+.brand h1 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.brand p {
+  margin: 2px 0 0;
+  color: var(--td-text-color-secondary);
+  font-size: 12px;
+}
+
+.admin-menu {
+  flex: 1;
+  border-right: 0;
+}
+
+.admin-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 20px;
+  border-bottom: 1px solid var(--td-component-stroke);
+  background: var(--td-bg-color-container);
+}
+
+.user-slot {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  color: var(--td-text-color-secondary);
+}
+
+.admin-content {
+  padding: 20px;
+}
+
+.page-grid {
+  display: grid;
+  gap: 16px;
+}
+
+.page-status {
+  display: grid;
+  gap: 12px;
+  justify-items: start;
+  min-height: 88px;
+  color: var(--td-text-color-secondary);
+}
+
+.page-status p {
+  margin: 0;
+}

@@ -1,0 +1,2 @@
+-- Phase 1 baseline rollback.
+-- No tables were created, so there is nothing to drop.

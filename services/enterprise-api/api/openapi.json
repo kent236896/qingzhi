@@ -1,0 +1,239 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "擎知企业后台 API",
+    "version": "0.1.0",
+    "description": "阶段 1 只包含进程健康检查和本 OpenAPI 文档。普通 JSON API 使用统一信封：code、message、data、request_id。本文件本身是 OpenAPI 文档，不使用该信封。日期时间约定为 UTC 的 RFC3339。分页约定见 docs/api-conventions.md，当前没有分页接口。"
+  },
+  "servers": [
+    {
+      "url": "http://127.0.0.1:8080",
+      "description": "本地开发"
+    }
+  ],
+  "tags": [
+    { "name": "health", "description": "进程与依赖健康检查" },
+    { "name": "meta", "description": "接口文档" }
+  ],
+  "paths": {
+    "/api/v1/health/live": {
+      "get": {
+        "tags": ["health"],
+        "operationId": "getHealthLive",
+        "summary": "存活检查",
+        "description": "只确认进程可以处理 HTTP 请求，不检查数据库或 Redis。",
+        "parameters": [
+          { "$ref": "#/components/parameters/RequestID" }
+        ],
+        "responses": {
+          "200": {
+            "description": "进程存活",
+            "headers": {
+              "X-Request-ID": { "$ref": "#/components/headers/RequestID" }
+            },
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/LiveEnvelope" },
+                "example": {
+                  "code": 0,
+                  "message": "ok",
+                  "data": { "status": "live" },
+                  "request_id": "example-request-id"
+                }
+              }
+            }
+          },
+          "500": { "$ref": "#/components/responses/InternalError" }
+        }
+      }
+    },
+    "/api/v1/health/ready": {
+      "get": {
+        "tags": ["health"],
+        "operationId": "getHealthReady",
+        "summary": "就绪检查",
+        "description": "检查 PostgreSQL 和 Redis 是否可连接。响应只包含 up 或 down，不返回连接串、账号或密码。",
+        "parameters": [
+          { "$ref": "#/components/parameters/RequestID" }
+        ],
+        "responses": {
+          "200": {
+            "description": "依赖可用",
+            "headers": {
+              "X-Request-ID": { "$ref": "#/components/headers/RequestID" }
+            },
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ReadyEnvelope" },
+                "example": {
+                  "code": 0,
+                  "message": "ok",
+                  "data": {
+                    "status": "ready",
+                    "checks": { "database": "up", "redis": "up" }
+                  },
+                  "request_id": "example-request-id"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "至少一个依赖不可用",
+            "headers": {
+              "X-Request-ID": { "$ref": "#/components/headers/RequestID" }
+            },
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/NotReadyEnvelope" },
+                "example": {
+                  "code": 50301,
+                  "message": "服务暂不可用",
+                  "data": {
+                    "status": "not_ready",
+                    "checks": { "database": "down", "redis": "up" }
+                  },
+                  "request_id": "example-request-id"
+                }
+              }
+            }
+          },
+          "500": { "$ref": "#/components/responses/InternalError" }
+        }
+      }
+    },
+    "/api/v1/openapi.json": {
+      "get": {
+        "tags": ["meta"],
+        "operationId": "getOpenAPI",
+        "summary": "获取 OpenAPI 文档",
+        "description": "返回当前服务已实现接口的 OpenAPI 3 文档，内容与本文件一致，不使用统一响应信封。",
+        "parameters": [
+          { "$ref": "#/components/parameters/RequestID" }
+        ],
+        "responses": {
+          "200": {
+            "description": "OpenAPI 文档",
+            "headers": {
+              "X-Request-ID": { "$ref": "#/components/headers/RequestID" }
+            },
+            "content": {
+              "application/json": {
+                "schema": { "type": "object" }
+              }
+            }
+          },
+          "500": { "$ref": "#/components/responses/InternalError" }
+        }
+      }
+    }
+  },
+  "components": {
+    "parameters": {
+      "RequestID": {
+        "name": "X-Request-ID",
+        "in": "header",
+        "required": false,
+        "description": "8 到 64 位的请求标识，只允许字母、数字、点、下划线和中划线。缺失或非法时由服务端生成。",
+        "schema": { "type": "string", "minLength": 8, "maxLength": 64 }
+      }
+    },
+    "headers": {
+      "RequestID": {
+        "description": "本次请求的 request id",
+        "schema": { "type": "string" }
+      }
+    },
+    "responses": {
+      "InternalError": {
+        "description": "未处理的服务器错误。响应不包含堆栈或内部诊断信息。",
+        "headers": {
+          "X-Request-ID": { "$ref": "#/components/headers/RequestID" }
+        },
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/ErrorEnvelope" },
+            "example": {
+              "code": 50000,
+              "message": "服务器内部错误",
+              "data": null,
+              "request_id": "example-request-id"
+            }
+          }
+        }
+      }
+    },
+    "schemas": {
+      "LiveEnvelope": {
+        "type": "object",
+        "required": ["code", "message", "data", "request_id"],
+        "properties": {
+          "code": { "type": "integer", "enum": [0] },
+          "message": { "type": "string", "enum": ["ok"] },
+          "data": { "$ref": "#/components/schemas/LiveData" },
+          "request_id": { "type": "string" }
+        }
+      },
+      "LiveData": {
+        "type": "object",
+        "required": ["status"],
+        "properties": {
+          "status": { "type": "string", "enum": ["live"] }
+        }
+      },
+      "ReadyEnvelope": {
+        "type": "object",
+        "required": ["code", "message", "data", "request_id"],
+        "properties": {
+          "code": { "type": "integer", "enum": [0] },
+          "message": { "type": "string", "enum": ["ok"] },
+          "data": { "$ref": "#/components/schemas/ReadyData" },
+          "request_id": { "type": "string" }
+        }
+      },
+      "NotReadyEnvelope": {
+        "type": "object",
+        "required": ["code", "message", "data", "request_id"],
+        "properties": {
+          "code": { "type": "integer", "enum": [50301] },
+          "message": { "type": "string" },
+          "data": { "$ref": "#/components/schemas/NotReadyData" },
+          "request_id": { "type": "string" }
+        }
+      },
+      "ReadyData": {
+        "type": "object",
+        "required": ["status", "checks"],
+        "properties": {
+          "status": { "type": "string", "enum": ["ready"] },
+          "checks": { "$ref": "#/components/schemas/ReadyChecks" }
+        }
+      },
+      "NotReadyData": {
+        "type": "object",
+        "required": ["status", "checks"],
+        "properties": {
+          "status": { "type": "string", "enum": ["not_ready"] },
+          "checks": { "$ref": "#/components/schemas/ReadyChecks" }
+        }
+      },
+      "ReadyChecks": {
+        "type": "object",
+        "required": ["database", "redis"],
+        "properties": {
+          "database": { "type": "string", "enum": ["up", "down"] },
+          "redis": { "type": "string", "enum": ["up", "down"] }
+        }
+      },
+      "ErrorEnvelope": {
+        "type": "object",
+        "required": ["code", "message", "data", "request_id"],
+        "properties": {
+          "code": { "type": "integer" },
+          "message": { "type": "string" },
+          "data": {},
+          "request_id": { "type": "string" }
+        }
+      }
+    }
+  }
+}

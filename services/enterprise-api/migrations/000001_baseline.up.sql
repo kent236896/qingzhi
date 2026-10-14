@@ -1,0 +1,2 @@
+-- Phase 1 baseline.
+-- Infrastructure only: this migration intentionally creates no tables.
