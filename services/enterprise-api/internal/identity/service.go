@@ -250,9 +250,6 @@ func (s *Service) CreateOrganization(ctx context.Context, tenantID string, input
 	if err := validateEmail(org.Email); err != nil {
 		return Organization{}, err
 	}
-	if org.ParentID == "" {
-		return Organization{}, invalid("每个租户只能有一个主体组织，请在主体组织下新建部门")
-	}
 	var created Organization
 	err := s.store.Transaction(ctx, func(tx Store) error {
 		if _, err := tx.FindTenant(ctx, tenantID); errors.Is(err, ErrNotFound) {
@@ -260,8 +257,33 @@ func (s *Service) CreateOrganization(ctx context.Context, tenantID string, input
 		} else if err != nil {
 			return err
 		}
-		if err := ensureParent(ctx, tx, tenantID, org.ParentID); err != nil {
+		existing, err := tx.ListOrganizations(ctx, tenantID)
+		if err != nil {
 			return err
+		}
+		parent, err := findOrganizationByID(ctx, tx, org.ParentID)
+		if err != nil {
+			return err
+		}
+		if _, ok := tenantRoot(existing); ok {
+			if parent.ID == "" || parent.TenantID != tenantID {
+				return invalid("该租户已有主体组织。部门必须挂在本租户组织下；子公司请选择子公司租户并挂接它的主体组织")
+			}
+			if cycle, err := organizationCycle(ctx, tx, "", org.ParentID); err != nil {
+				return err
+			} else if cycle {
+				return invalid("不能把部门移动到自己或自己的下级")
+			}
+		} else {
+			org.IsTenantRoot = true
+			if err := validateRootParent(parent, tenantID); err != nil {
+				return err
+			}
+			if cycle, err := organizationCycle(ctx, tx, "", org.ParentID); err != nil {
+				return err
+			} else if cycle {
+				return invalid("不能把组织挂到自己或自己的下级")
+			}
 		}
 		if err := ensureUser(ctx, tx, org.LeaderUserID, "负责人不存在"); err != nil {
 			return err
@@ -339,25 +361,24 @@ func (s *Service) UpdateOrganization(ctx context.Context, tenantID, id string, i
 			if input.ParentID != nil {
 				parentID = strings.TrimSpace(*input.ParentID)
 			}
-			if org.ParentID == "" {
-				if parentID != "" {
-					return invalid("主体组织不能改为部门")
-				}
-			} else if parentID == "" {
-				return invalid("部门必须属于当前租户的主体组织")
-			} else {
-				if err := ensureParent(ctx, tx, tenantID, parentID); err != nil {
-					return err
-				}
-				orgs, err := tx.ListOrganizations(ctx, tenantID)
-				if err != nil {
-					return err
-				}
-				if parentCreatesCycle(orgs, org.ID, parentID) {
-					return invalid("不能把部门移动到自己或自己的下级")
-				}
-				org.ParentID = parentID
+			parent, err := findOrganizationByID(ctx, tx, parentID)
+			if err != nil {
+				return err
 			}
+			if org.IsTenantRoot || org.ParentID == "" {
+				org.IsTenantRoot = true
+				if err := validateRootParent(parent, tenantID); err != nil {
+					return err
+				}
+			} else if parent.ID == "" || parent.TenantID != tenantID {
+				return invalid("部门必须属于当前租户的主体组织")
+			}
+			if cycle, err := organizationCycle(ctx, tx, org.ID, parentID); err != nil {
+				return err
+			} else if cycle {
+				return invalid("不能把组织挂到自己或自己的下级")
+			}
+			org.ParentID = parentID
 		}
 		org.UpdateTime = time.Now().UTC()
 		if err := tx.UpdateOrganization(ctx, org); err != nil {
@@ -378,7 +399,7 @@ func (s *Service) DeleteOrganization(ctx context.Context, tenantID, id string) e
 		if err != nil {
 			return err
 		}
-		if org.ParentID == "" {
+		if org.IsTenantRoot || org.ParentID == "" {
 			return conflict("主体组织不能删除")
 		}
 		children, err := tx.CountChildOrganizations(ctx, id)
@@ -1267,6 +1288,48 @@ func (s *Service) GetUser(ctx context.Context, id string) (UserDetail, error) {
 	return detail, err
 }
 
+func (s *Service) GetOwnProfile(ctx context.Context, userID string) (User, error) {
+	user, err := s.store.FindUser(ctx, userID)
+	if errors.Is(err, ErrNotFound) {
+		return User{}, notFound("账号不存在")
+	}
+	if err != nil {
+		return User{}, err
+	}
+	user.PasswordHash = ""
+	return user, nil
+}
+
+func (s *Service) UpdateOwnProfile(ctx context.Context, userID string, input UpdateUserInput) (User, error) {
+	input.Password = nil
+	input.Status = nil
+	return s.UpdateUser(ctx, userID, input)
+}
+
+func (s *Service) ChangeOwnPassword(ctx context.Context, userID, currentPassword, nextPassword string) error {
+	if strings.TrimSpace(currentPassword) == "" || strings.TrimSpace(nextPassword) == "" {
+		return invalid("请填写当前密码和新密码")
+	}
+	if currentPassword == nextPassword {
+		return invalid("新密码不能与当前密码相同")
+	}
+	user, err := s.store.FindUser(ctx, userID)
+	if errors.Is(err, ErrNotFound) {
+		return notFound("账号不存在")
+	}
+	if err != nil {
+		return err
+	}
+	if !checkPassword(user.PasswordHash, currentPassword) {
+		return unauthorized("当前密码不正确")
+	}
+	hash, err := hashPassword(nextPassword)
+	if err != nil {
+		return err
+	}
+	return s.store.UpdateUserPassword(ctx, userID, hash)
+}
+
 func (s *Service) UpdateUser(ctx context.Context, id string, input UpdateUserInput) (User, error) {
 	if input.Nickname == nil && input.Password == nil && input.Remark == nil && input.Email == nil && input.Mobile == nil && input.Sex == nil && input.Avatar == nil && input.Status == nil {
 		return User{}, invalid("没有可更新的字段")
@@ -1546,13 +1609,14 @@ func ensureUser(ctx context.Context, tx Store, userID, missing string) error {
 
 func rootOrganization(tenant Tenant, now time.Time) Organization {
 	return Organization{
-		ID:         newID(),
-		TenantID:   tenant.ID,
-		Name:       tenant.Name,
-		Code:       tenant.Code,
-		Status:     StatusNormal,
-		CreateTime: now,
-		UpdateTime: now,
+		ID:           newID(),
+		TenantID:     tenant.ID,
+		Name:         tenant.Name,
+		Code:         tenant.Code,
+		IsTenantRoot: true,
+		Status:       StatusNormal,
+		CreateTime:   now,
+		UpdateTime:   now,
 	}
 }
 
@@ -1561,12 +1625,75 @@ func rootOrganizationView(ctx context.Context, tx Store, tenantID string) (strin
 	if err != nil {
 		return "", "", err
 	}
+	if root, ok := tenantRoot(orgs); ok {
+		return root.ID, root.Name, nil
+	}
 	for _, org := range orgs {
 		if org.ParentID == "" {
 			return org.ID, org.Name, nil
 		}
 	}
 	return "", "", nil
+}
+
+func tenantRoot(orgs []Organization) (Organization, bool) {
+	for _, org := range orgs {
+		if org.IsTenantRoot {
+			return org, true
+		}
+	}
+	return Organization{}, false
+}
+
+func findOrganizationByID(ctx context.Context, tx Store, id string) (Organization, error) {
+	if id == "" {
+		return Organization{}, nil
+	}
+	org, err := tx.FindOrganizationByID(ctx, id)
+	if errors.Is(err, ErrNotFound) {
+		return Organization{}, invalid("上级组织不存在")
+	}
+	return org, err
+}
+
+func isCompanyRoot(org Organization) bool {
+	return org.ID != "" && (org.IsTenantRoot || org.ParentID == "")
+}
+
+func validateRootParent(parent Organization, tenantID string) error {
+	if parent.ID == "" {
+		return nil
+	}
+	if !isCompanyRoot(parent) {
+		return invalid("子公司只能挂在其他租户的主体组织下面")
+	}
+	if parent.TenantID == tenantID {
+		return invalid("主体组织不能挂到本租户的组织下面")
+	}
+	return nil
+}
+
+func organizationCycle(ctx context.Context, tx Store, id, parentID string) (bool, error) {
+	seen := map[string]struct{}{}
+	if id != "" {
+		seen[id] = struct{}{}
+	}
+	current := parentID
+	for current != "" {
+		if _, ok := seen[current]; ok {
+			return true, nil
+		}
+		seen[current] = struct{}{}
+		parent, err := tx.FindOrganizationByID(ctx, current)
+		if errors.Is(err, ErrNotFound) {
+			return false, invalid("上级组织不存在")
+		}
+		if err != nil {
+			return false, err
+		}
+		current = parent.ParentID
+	}
+	return false, nil
 }
 
 func ensureParent(ctx context.Context, tx Store, tenantID, parentID string) error {

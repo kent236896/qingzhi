@@ -200,7 +200,25 @@ func TestCrossTenantOrganizationAssignment(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := svc.CreateOrganization(ctx, tenantA.ID, CreateOrganizationInput{Name: "跨租户", Code: "X", ParentID: rootB.ID}); !errors.Is(err, ErrInvalid) {
-		t.Fatalf("cross-tenant parent error = %v", err)
+		t.Fatalf("cross-tenant department error = %v", err)
+	}
+	placed, err := svc.UpdateOrganization(ctx, tenantB.ID, rootB.ID, UpdateOrganizationInput{ParentSet: true, ParentID: &rootA.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if placed.ParentID != rootA.ID || !placed.IsTenantRoot || placed.TenantID != tenantB.ID {
+		t.Fatalf("subsidiary = %+v", placed)
+	}
+	if _, err := svc.UpdateOrganization(ctx, tenantA.ID, rootA.ID, UpdateOrganizationInput{ParentSet: true, ParentID: &rootB.ID}); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("organization cycle error = %v", err)
+	}
+	if _, err := svc.UpdateOrganization(ctx, tenantB.ID, rootB.ID, UpdateOrganizationInput{ParentSet: true, ParentID: &dept.ID}); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("subsidiary under department error = %v", err)
+	}
+	clearedParent := ""
+	lifted, err := svc.UpdateOrganization(ctx, tenantB.ID, rootB.ID, UpdateOrganizationInput{ParentSet: true, ParentID: &clearedParent})
+	if err != nil || lifted.ParentID != "" || !lifted.IsTenantRoot {
+		t.Fatalf("lifted = %+v err=%v", lifted, err)
 	}
 	cleared := ""
 	if _, err := svc.UpdateOrganization(ctx, tenantA.ID, dept.ID, UpdateOrganizationInput{ParentSet: true, ParentID: &cleared}); !errors.Is(err, ErrInvalid) {
@@ -277,13 +295,40 @@ func TestCrossTenantOrganizationAssignment(t *testing.T) {
 	}
 }
 
+func TestOwnProfileAndPassword(t *testing.T) {
+	svc := NewService(newMemoryStore())
+	ctx := context.Background()
+	user, err := svc.CreateUser(ctx, CreateUserInput{Username: "ada", Password: "Passw0rd!", Nickname: "艾达"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	nickname := "艾达·洛夫莱斯"
+	email := "ada@example.com"
+	updated, err := svc.UpdateOwnProfile(ctx, user.ID, UpdateUserInput{Nickname: &nickname, Email: &email})
+	if err != nil || updated.Nickname != nickname || updated.Email != email || updated.Status != user.Status {
+		t.Fatalf("profile = %+v err=%v", updated, err)
+	}
+	if err := svc.ChangeOwnPassword(ctx, user.ID, "wrong", "NewPass1!"); !errors.Is(err, ErrUnauthorized) {
+		t.Fatalf("wrong password error = %v", err)
+	}
+	if err := svc.ChangeOwnPassword(ctx, user.ID, "Passw0rd!", "NewPass1!"); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.ChangeOwnPassword(ctx, user.ID, "NewPass1!", "Newer1!"); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.ChangeOwnPassword(ctx, user.ID, "Passw0rd!", "Nope1!"); !errors.Is(err, ErrUnauthorized) {
+		t.Fatalf("old password error = %v", err)
+	}
+}
+
 func onlyRoot(t *testing.T, svc *Service, tenantID string) (OrganizationNode, error) {
 	t.Helper()
 	tree, err := svc.ListOrganizations(context.Background(), tenantID)
 	if err != nil {
 		return OrganizationNode{}, err
 	}
-	if len(tree) != 1 || tree[0].ParentID != "" {
+	if len(tree) != 1 || !tree[0].IsTenantRoot {
 		t.Fatalf("root tree = %+v", tree)
 	}
 	return tree[0], nil

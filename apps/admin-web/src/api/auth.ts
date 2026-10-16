@@ -17,14 +17,28 @@ export interface LoginResult {
 }
 
 export interface AuthMe {
+  version: string
   user: {
     id: string
     username: string
     nickname: string
+    avatar?: string
   }
   tenant_id: string
   permissions: string[]
   data_scope: number
+}
+
+export interface OwnProfile {
+  id: string
+  username: string
+  nickname: string
+  remark: string
+  email: string
+  mobile: string
+  sex: number
+  avatar: string
+  status: number
 }
 
 export function login(body: { username: string; password: string; tenant_id?: string }) {
@@ -37,4 +51,23 @@ export function fetchAuthMe() {
 
 export function fetchAuthMenus() {
   return http.get<MenuNode[]>('/api/v1/auth/menus')
+}
+
+export function fetchOwnProfile() {
+  return http.get<{ version: string; user: OwnProfile }>('/api/v1/auth/profile')
+}
+
+export function updateOwnProfile(body: {
+  nickname?: string
+  remark?: string
+  email?: string
+  mobile?: string
+  sex?: number
+  avatar?: string
+}) {
+  return http.patch<OwnProfile>('/api/v1/auth/profile', body)
+}
+
+export function changeOwnPassword(body: { current_password: string; new_password: string }) {
+  return http.put<{ changed: boolean }>('/api/v1/auth/password', body)
 }

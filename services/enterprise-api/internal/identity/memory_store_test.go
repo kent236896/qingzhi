@@ -234,6 +234,14 @@ func (s *memoryStore) DeleteOrganization(_ context.Context, id string) error {
 	return nil
 }
 
+func (s *memoryStore) FindOrganizationByID(_ context.Context, id string) (Organization, error) {
+	org, ok := s.orgs[id]
+	if !ok || org.Deleted {
+		return Organization{}, ErrNotFound
+	}
+	return org, nil
+}
+
 func (s *memoryStore) FindOrganization(_ context.Context, tenantID, id string) (Organization, error) {
 	org, ok := s.orgs[id]
 	if !ok || org.Deleted || org.TenantID != tenantID {

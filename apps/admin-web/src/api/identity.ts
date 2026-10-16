@@ -29,6 +29,7 @@ export interface OrganizationNode {
   id: string
   tenant_id: string
   parent_id: string
+  is_tenant_root: boolean
   name: string
   code: string
   sort: number

@@ -9,6 +9,7 @@ export const useAuthStore = defineStore('auth', () => {
   const token = ref(localStorage.getItem(TOKEN_KEY) || '')
   const tenantId = ref(localStorage.getItem(TENANT_KEY) || '')
   const user = ref<AuthMe['user'] | null>(null)
+  const version = ref('')
   const permissions = ref<string[]>([])
   const dataScope = ref(1)
   const bootstrapped = ref(false)
@@ -38,8 +39,18 @@ export const useAuthStore = defineStore('auth', () => {
       persist(token.value, result.tenant_id)
     }
     user.value = result.user
+    if ('version' in result && result.version) {
+      version.value = result.version
+    }
     permissions.value = result.permissions ?? []
     dataScope.value = result.data_scope
+  }
+
+  function applyProfile(profile: { nickname: string; avatar: string }) {
+    if (!user.value) {
+      return
+    }
+    user.value = { ...user.value, nickname: profile.nickname, avatar: profile.avatar }
   }
 
   async function login(username: string, password: string, nextTenantId?: string) {
@@ -73,6 +84,7 @@ export const useAuthStore = defineStore('auth', () => {
   function clear() {
     persist('', '')
     user.value = null
+    version.value = ''
     permissions.value = []
     dataScope.value = 1
   }
@@ -89,6 +101,7 @@ export const useAuthStore = defineStore('auth', () => {
     token,
     tenantId,
     user,
+    version,
     permissions,
     dataScope,
     bootstrapped,
@@ -97,6 +110,7 @@ export const useAuthStore = defineStore('auth', () => {
     login,
     restore,
     logout,
+    applyProfile,
     clear,
     hasPermission,
   }

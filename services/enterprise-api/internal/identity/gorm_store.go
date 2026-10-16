@@ -181,6 +181,18 @@ func (s *GormStore) DeleteOrganization(ctx context.Context, id string) error {
 	return nil
 }
 
+func (s *GormStore) FindOrganizationByID(ctx context.Context, id string) (Organization, error) {
+	var row organizationRow
+	err := s.db.WithContext(ctx).First(&row, "id = ? AND deleted = ?", id, false).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return Organization{}, ErrNotFound
+	}
+	if err != nil {
+		return Organization{}, err
+	}
+	return row.organization(), nil
+}
+
 func (s *GormStore) FindOrganization(ctx context.Context, tenantID, id string) (Organization, error) {
 	var row organizationRow
 	err := s.db.WithContext(ctx).First(&row, "id = ? AND tenant_id = ? AND deleted = ?", id, tenantID, false).Error
@@ -436,6 +448,7 @@ type organizationRow struct {
 	ID           string    `gorm:"type:uuid;primaryKey"`
 	TenantID     string    `gorm:"column:tenant_id"`
 	ParentID     *string   `gorm:"column:parent_id"`
+	IsTenantRoot bool      `gorm:"column:is_tenant_root"`
 	Name         string    `gorm:"column:name"`
 	Code         string    `gorm:"column:code"`
 	Sort         int       `gorm:"column:sort"`
@@ -454,7 +467,7 @@ func (organizationRow) TableName() string { return "sys_organizations" }
 
 func organizationRowFrom(org Organization) organizationRow {
 	return organizationRow{
-		ID: org.ID, TenantID: org.TenantID, ParentID: nullable(org.ParentID), Name: org.Name,
+		ID: org.ID, TenantID: org.TenantID, ParentID: nullable(org.ParentID), IsTenantRoot: org.IsTenantRoot, Name: org.Name,
 		Code: org.Code, Sort: org.Sort, LeaderUserID: nullable(org.LeaderUserID), Phone: nullable(org.Phone),
 		Email: nullable(org.Email), Status: org.Status, Creator: org.Creator, Updater: org.Updater,
 		CreateTime: org.CreateTime, UpdateTime: org.UpdateTime, Deleted: org.Deleted,
@@ -463,7 +476,7 @@ func organizationRowFrom(org Organization) organizationRow {
 
 func (row organizationRow) organization() Organization {
 	return Organization{
-		ID: row.ID, TenantID: row.TenantID, ParentID: valueOf(row.ParentID), Name: row.Name,
+		ID: row.ID, TenantID: row.TenantID, ParentID: valueOf(row.ParentID), IsTenantRoot: row.IsTenantRoot, Name: row.Name,
 		Code: row.Code, Sort: row.Sort, LeaderUserID: valueOf(row.LeaderUserID), Phone: valueOf(row.Phone),
 		Email: valueOf(row.Email), Status: row.Status, Creator: row.Creator, Updater: row.Updater,
 		CreateTime: row.CreateTime.UTC(), UpdateTime: row.UpdateTime.UTC(), Deleted: row.Deleted,

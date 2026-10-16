@@ -26,6 +26,7 @@ type Store interface {
 	UpdateOrganization(ctx context.Context, org Organization) error
 	DeleteOrganization(ctx context.Context, id string) error
 	FindOrganization(ctx context.Context, tenantID, id string) (Organization, error)
+	FindOrganizationByID(ctx context.Context, id string) (Organization, error)
 	ListOrganizations(ctx context.Context, tenantID string) ([]Organization, error)
 	CountChildOrganizations(ctx context.Context, id string) (int64, error)
 	CountOrganizationAssignments(ctx context.Context, organizationID string) (int64, error)

@@ -45,16 +45,24 @@ func (h Identity) Register(group *gin.RouterGroup, enforce bool) {
 		}
 		return append([]gin.HandlerFunc{auth.RequireTenantMatch("tenantId")}, handlers...)
 	}
+	// Organization setup spans the group tenant and subsidiary tenants.
+	// Callers who can query tenants may maintain those tenants' organizations.
+	organizationTenant := func(handlers ...gin.HandlerFunc) []gin.HandlerFunc {
+		if !enforce {
+			return handlers
+		}
+		return append([]gin.HandlerFunc{auth.RequireTenantMatchOrPermission("tenantId", "system:tenant:query")}, handlers...)
+	}
 
 	group.GET("/tenants", perm("system:tenant:query"), h.listTenants)
 	group.POST("/tenants", perm("system:tenant:create"), h.createTenant)
 	group.GET("/tenants/:tenantId", tenant(perm("system:tenant:query"), h.getTenant)...)
 	group.PATCH("/tenants/:tenantId", tenant(perm("system:tenant:update"), h.updateTenant)...)
 
-	group.GET("/tenants/:tenantId/organizations", tenant(perm("system:organization:query"), h.listOrganizations)...)
-	group.POST("/tenants/:tenantId/organizations", tenant(perm("system:organization:create"), h.createOrganization)...)
-	group.PATCH("/tenants/:tenantId/organizations/:organizationId", tenant(perm("system:organization:update"), h.updateOrganization)...)
-	group.DELETE("/tenants/:tenantId/organizations/:organizationId", tenant(perm("system:organization:delete"), h.deleteOrganization)...)
+	group.GET("/tenants/:tenantId/organizations", organizationTenant(perm("system:organization:query"), h.listOrganizations)...)
+	group.POST("/tenants/:tenantId/organizations", organizationTenant(perm("system:organization:create"), h.createOrganization)...)
+	group.PATCH("/tenants/:tenantId/organizations/:organizationId", organizationTenant(perm("system:organization:update"), h.updateOrganization)...)
+	group.DELETE("/tenants/:tenantId/organizations/:organizationId", organizationTenant(perm("system:organization:delete"), h.deleteOrganization)...)
 
 	group.GET("/tenants/:tenantId/posts", tenant(perm("system:post:query"), h.listPosts)...)
 	group.POST("/tenants/:tenantId/posts", tenant(perm("system:post:create"), h.createPost)...)

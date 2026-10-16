@@ -78,6 +78,15 @@ func RequirePermission(permission string) gin.HandlerFunc {
 
 // RequireTenantMatch ensures path tenant id equals the token tenant.
 func RequireTenantMatch(param string) gin.HandlerFunc {
+	return requireTenant(param, "")
+}
+
+// RequireTenantMatchOrPermission allows the token tenant, or another tenant when the caller has permission.
+func RequireTenantMatchOrPermission(param, permission string) gin.HandlerFunc {
+	return requireTenant(param, permission)
+}
+
+func requireTenant(param, crossTenantPermission string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		principal, ok := GetPrincipal(c)
 		if !ok {
@@ -86,8 +95,10 @@ func RequireTenantMatch(param string) gin.HandlerFunc {
 		}
 		tenantID := c.Param(param)
 		if tenantID != "" && tenantID != principal.TenantID {
-			response.Fail(c, http.StatusForbidden, response.CodeForbidden, "不能访问其他租户数据", nil)
-			return
+			if crossTenantPermission == "" || !principal.HasPermission(crossTenantPermission) {
+				response.Fail(c, http.StatusForbidden, response.CodeForbidden, "不能访问其他租户数据", nil)
+				return
+			}
 		}
 		c.Next()
 	}

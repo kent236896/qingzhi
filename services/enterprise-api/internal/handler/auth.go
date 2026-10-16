@@ -11,6 +11,7 @@ import (
 	"qingzhi/enterprise-api/internal/identity"
 	"qingzhi/enterprise-api/internal/response"
 	"qingzhi/enterprise-api/internal/security"
+	"qingzhi/enterprise-api/internal/version"
 )
 
 // Auth serves login and current-session endpoints.
@@ -32,6 +33,9 @@ func (h Auth) RegisterPublic(group *gin.RouterGroup) {
 func (h Auth) RegisterProtected(group *gin.RouterGroup) {
 	group.GET("/auth/me", h.me)
 	group.GET("/auth/menus", h.menus)
+	group.GET("/auth/profile", h.profile)
+	group.PATCH("/auth/profile", h.updateProfile)
+	group.PUT("/auth/password", h.changePassword)
 }
 
 func (h Auth) login(c *gin.Context) {
@@ -99,16 +103,92 @@ func (h Auth) me(c *gin.Context) {
 	for item := range principal.Permissions {
 		permissions = append(permissions, item)
 	}
+	nickname := principal.Nickname
+	avatar := ""
+	if h.Service != nil {
+		if user, err := h.Service.GetOwnProfile(c.Request.Context(), principal.UserID); err == nil {
+			nickname = user.Nickname
+			avatar = user.Avatar
+		}
+	}
 	response.OK(c, map[string]any{
+		"version": version.Current,
 		"user": map[string]any{
 			"id":       principal.UserID,
 			"username": principal.Username,
-			"nickname": principal.Nickname,
+			"nickname": nickname,
+			"avatar":   avatar,
 		},
 		"tenant_id":   principal.TenantID,
 		"permissions": permissions,
 		"data_scope":  principal.Access.Scope,
 	})
+}
+
+func (h Auth) profile(c *gin.Context) {
+	principal, ok := h.principal(c)
+	if !ok || !h.available(c) {
+		return
+	}
+	item, err := h.Service.GetOwnProfile(c.Request.Context(), principal.UserID)
+	if err != nil {
+		h.writeAuth(c, nil, err)
+		return
+	}
+	response.OK(c, map[string]any{"version": version.Current, "user": item})
+}
+
+func (h Auth) updateProfile(c *gin.Context) {
+	principal, ok := h.principal(c)
+	if !ok || !h.available(c) {
+		return
+	}
+	var body struct {
+		Nickname *string `json:"nickname"`
+		Remark   *string `json:"remark"`
+		Email    *string `json:"email"`
+		Mobile   *string `json:"mobile"`
+		Sex      *int    `json:"sex"`
+		Avatar   *string `json:"avatar"`
+	}
+	if !response.BindJSON(c, &body) {
+		return
+	}
+	item, err := h.Service.UpdateOwnProfile(c.Request.Context(), principal.UserID, identity.UpdateUserInput{
+		Nickname: body.Nickname, Remark: body.Remark, Email: body.Email, Mobile: body.Mobile, Sex: body.Sex, Avatar: body.Avatar,
+	})
+	h.writeAuth(c, item, err)
+}
+
+func (h Auth) changePassword(c *gin.Context) {
+	principal, ok := h.principal(c)
+	if !ok || !h.available(c) {
+		return
+	}
+	var body struct {
+		CurrentPassword string `json:"current_password"`
+		NewPassword     string `json:"new_password"`
+	}
+	if !response.BindJSON(c, &body) {
+		return
+	}
+	if h.Security != nil {
+		if err := h.Security.CheckPassword(c.Request.Context(), body.NewPassword); err != nil {
+			response.Fail(c, http.StatusBadRequest, response.CodeInvalidParams, err.Error(), nil)
+			return
+		}
+	}
+	err := h.Service.ChangeOwnPassword(c.Request.Context(), principal.UserID, body.CurrentPassword, body.NewPassword)
+	h.writeAuth(c, map[string]any{"changed": err == nil}, err)
+}
+
+func (h Auth) principal(c *gin.Context) (auth.Principal, bool) {
+	principal, ok := auth.GetPrincipal(c)
+	if !ok {
+		response.Fail(c, http.StatusUnauthorized, response.CodeUnauthorized, "未登录或令牌无效", nil)
+		return auth.Principal{}, false
+	}
+	return principal, true
 }
 
 func (h Auth) menus(c *gin.Context) {

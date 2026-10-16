@@ -59,11 +59,14 @@ type Tenant struct {
 	Deleted       bool      `json:"deleted"`
 }
 
-// Organization is a department node in one tenant.
+// Organization is a company root or a department.
+// A tenant has one root. That root may sit under another tenant's root, as a subsidiary.
+// Departments stay inside their own tenant.
 type Organization struct {
 	ID           string    `json:"id"`
 	TenantID     string    `json:"tenant_id"`
 	ParentID     string    `json:"parent_id"`
+	IsTenantRoot bool      `json:"is_tenant_root"`
 	Name         string    `json:"name"`
 	Code         string    `json:"code"`
 	Sort         int       `json:"sort"`

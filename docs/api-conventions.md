@@ -58,9 +58,10 @@
 账号、租户和部门管理接口同样走 `/api/v1`。除健康检查、OpenAPI 与登录外，管理接口需要 `Authorization: Bearer <token>`，并校验角色菜单权限；租户路径参数必须与令牌中的租户一致。认证失败返回 HTTP 401、业务码 `40100`；无权限返回 HTTP 403、业务码 `40300`。数据库未就绪时返回 HTTP 503、业务码 `50301`。
 
 - `POST /api/v1/auth/login`：用户名、密码、可选 `tenant_id`。成功返回 access token、当前用户、权限列表与数据范围。
-- `GET /api/v1/auth/me`、`GET /api/v1/auth/menus`：当前会话与按角色过滤的菜单树。侧边栏应使用后者，而不是完整菜单管理接口。
+- `GET /api/v1/auth/me`、`GET /api/v1/auth/menus`：当前会话与按角色过滤的菜单树。`me` 同时返回系统版本。侧边栏应使用菜单接口，而不是完整菜单管理接口。
+- `GET/PATCH /api/v1/auth/profile` 读取或修改当前用户的昵称、备注、邮箱、手机、性别和头像。`PUT /api/v1/auth/password` 用当前密码修改登录密码。这两项只作用于登录者本人。
 - `GET/POST /api/v1/tenants`，`GET/PATCH /api/v1/tenants/{tenantId}`
-- `GET/POST /api/v1/tenants/{tenantId}/organizations`，`PATCH/DELETE /api/v1/tenants/{tenantId}/organizations/{organizationId}`。创建租户时同时建立唯一主体组织。`POST` 必须带同一租户内的 `parent_id`，不能再创建主体组织。不能把主体组织改成部门、把部门提升为第二个主体组织，也不能删除主体组织。`GET` 按数据范围过滤组织树。路径中的租户必须与令牌租户一致。
+- `GET/POST /api/v1/tenants/{tenantId}/organizations`，`PATCH/DELETE /api/v1/tenants/{tenantId}/organizations/{organizationId}`。每个租户只有一个主体组织。集团和子公司的主体可以同级，也可以把子公司主体挂到集团主体下面；部门必须留在本公司租户内。不能删除主体组织。`GET` 按数据范围过滤。令牌租户可以直接访问；维护其他租户的组织还需要 `system:tenant:query`。
 - `GET/POST /api/v1/tenants/{tenantId}/posts`，`GET/PATCH/DELETE /api/v1/tenants/{tenantId}/posts/{postId}`。岗位按租户隔离，同一租户内编码唯一。
 - `GET/POST /api/v1/menus`，`GET/PATCH/DELETE /api/v1/menus/{menuId}`。`GET` 返回整棵菜单树，最多使用三级。类型用 `1` 表示目录、`2` 表示菜单、`3` 表示按钮。`permission` 是权限标识。业务菜单下通常挂查询/新增/修改/删除按钮（如 `system:tenant:create`）。角色勾选按钮后，对应用户才能调用对应写接口；无权限返回 HTTP 403、业务码 `40300`。
 - `GET/POST /api/v1/dict-types`，`GET/PATCH/DELETE /api/v1/dict-types/{typeId}`。字典类型全局唯一，不按租户隔离。`type` 为 1 到 100 位字母、数字或下划线。修改 `type` 时同步更新其下数据的 `dict_type`。类型下仍有数据时不能删除，删除会写入 `deleted_time`。

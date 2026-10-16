@@ -141,12 +141,21 @@ body {
   line-height: 1.3;
 }
 
-.user-slot {
+.user-trigger {
   display: flex;
   gap: var(--qz-space-2);
   align-items: center;
-  color: var(--qz-text-secondary);
+  padding: 4px 8px;
+  border: 0;
+  border-radius: var(--qz-radius-control);
+  background: transparent;
+  color: var(--qz-text);
   font-size: var(--qz-font-md);
+  cursor: pointer;
+}
+
+.user-trigger:hover {
+  background: var(--qz-brand-light);
 }
 
 .admin-content {
