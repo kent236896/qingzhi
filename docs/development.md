@@ -44,7 +44,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\migrate.ps1 versio
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\migrate.ps1 down
 ```
 
-`up` 应用全部未执行迁移。`down` 只回滚最近一步。`version` 查看当前版本。阶段 1 的基线迁移不创建数据表。
+`up` 应用全部未执行迁移。`down` 只回滚最近一步。`version` 查看当前版本。`000001_baseline` 不创建数据表。`000002_identity` 创建账号、租户和部门表。`000003_sys_prefix` 给这些表加上 `sys_` 前缀并调整字段。`000004_sys_posts` 创建岗位表 `sys_posts`。`000005_sys_menus` 创建菜单表 `sys_menus`。`000006_sys_menus_seed` 写入默认的三级菜单。`000007_sys_roles` 创建角色及相关关联表。`000008_auth_data_scope` 增加角色数据范围、`sys_role_depts`，并初始化管理员（`admin` / `Admin@123456`，需库中已有租户）。`000009_menu_crud_buttons` 在业务菜单下写入增删改查按钮权限，并同步给已拥有父菜单的角色。`000010_sys_dicts` 创建 `sys_dict_types`、`sys_dict_data`，并给已拥有「系统管理」的角色挂上字典菜单。`000011_sys_security` 创建登录日志、操作审计、权限变更和安全策略，并给已拥有「系统管理」的角色挂上安全审计菜单。`000012_sys_monitor` 创建 `sys_monitor_alerts`，并给已拥有「系统管理」的角色挂上系统监控菜单。`000013_menu_names` 把业务菜单改成四个字，并把「首页」调整为一级菜单。`000014_organization_root` 为每个租户约束唯一主体组织，并给缺少组织任职的成员补上该主体组织。若某个租户已经有多个主体组织，这一步会失败，需要先人工整理。配置需提供 `JWT_SECRET`（至少 16 位）与可选 `JWT_EXPIRE`（默认 `24h`）。可选 `HTTP_REQUEST_TIMEOUT`、`HTTP_MAX_BODY_BYTES`、`HTTP_RATE_LIMIT_RPS`、`HTTP_RATE_LIMIT_BURST` 控制请求防护，`MONITOR_WINDOW` 与 `MONITOR_*` 控制告警阈值。
 
 ## 启动应用
 

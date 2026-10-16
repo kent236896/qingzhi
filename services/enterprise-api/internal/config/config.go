@@ -24,6 +24,14 @@ type Config struct {
 	Postgres PostgresConfig
 	Redis    RedisConfig
 	CORS     CORSConfig
+	Auth     AuthConfig
+	Monitor  MonitorConfig
+}
+
+// AuthConfig holds JWT signing settings. Tokens are self-contained; Redis is not used for sessions.
+type AuthConfig struct {
+	JWTSecret   string
+	TokenTTL    time.Duration
 }
 
 // HTTPConfig controls the public HTTP server.
@@ -85,6 +93,22 @@ type CORSConfig struct {
 	AllowedOrigins []string
 }
 
+// MonitorConfig controls in-process metrics, alerts, and request protection.
+// Rate limiting applies inside this process only.
+type MonitorConfig struct {
+	Window         time.Duration
+	ErrorCount     int
+	TimeoutCount   int
+	P95            time.Duration
+	CPUPercent     int
+	MemoryPercent  int
+	DiskPercent    int
+	RequestTimeout time.Duration
+	MaxBodyBytes   int64
+	RateLimitRPS   int
+	RateLimitBurst int
+}
+
 // Load reads environment variables and validates them.
 // An empty ENV_FILE disables dotenv loading. When ENV_FILE is unset, the first
 // existing file among .env, ../.env and ../../.env is loaded without overriding
@@ -121,6 +145,7 @@ func Load() (Config, error) {
 	require("REDIS_HOST")
 	redisPortRaw := require("REDIS_PORT")
 	require("APP_ENV")
+	require("JWT_SECRET")
 
 	if len(missing) > 0 {
 		return Config{}, fmt.Errorf("missing required configuration: %s", strings.Join(missing, ", "))
@@ -171,6 +196,43 @@ func Load() (Config, error) {
 	}
 
 	cfg.CORS.AllowedOrigins = splitCSV(env.getenv("CORS_ALLOWED_ORIGINS", ""))
+	cfg.Auth.JWTSecret = env.getenv("JWT_SECRET", "")
+	if cfg.Auth.TokenTTL, err = parseDuration("JWT_EXPIRE", env.getenv("JWT_EXPIRE", ""), "24h"); err != nil {
+		return Config{}, err
+	}
+	if cfg.Monitor.Window, err = parseDuration("MONITOR_WINDOW", env.getenv("MONITOR_WINDOW", ""), "5m"); err != nil {
+		return Config{}, err
+	}
+	if cfg.Monitor.ErrorCount, err = parseNonNegativeInt("MONITOR_ERROR_COUNT", env.getenv("MONITOR_ERROR_COUNT", ""), "20"); err != nil {
+		return Config{}, err
+	}
+	if cfg.Monitor.TimeoutCount, err = parseNonNegativeInt("MONITOR_TIMEOUT_COUNT", env.getenv("MONITOR_TIMEOUT_COUNT", ""), "1"); err != nil {
+		return Config{}, err
+	}
+	if cfg.Monitor.P95, err = parseDuration("MONITOR_P95", env.getenv("MONITOR_P95", ""), "2s"); err != nil {
+		return Config{}, err
+	}
+	if cfg.Monitor.CPUPercent, err = parsePercent("MONITOR_CPU_PERCENT", env.getenv("MONITOR_CPU_PERCENT", ""), "90"); err != nil {
+		return Config{}, err
+	}
+	if cfg.Monitor.MemoryPercent, err = parsePercent("MONITOR_MEMORY_PERCENT", env.getenv("MONITOR_MEMORY_PERCENT", ""), "90"); err != nil {
+		return Config{}, err
+	}
+	if cfg.Monitor.DiskPercent, err = parsePercent("MONITOR_DISK_PERCENT", env.getenv("MONITOR_DISK_PERCENT", ""), "90"); err != nil {
+		return Config{}, err
+	}
+	if cfg.Monitor.RequestTimeout, err = parseDuration("HTTP_REQUEST_TIMEOUT", env.getenv("HTTP_REQUEST_TIMEOUT", ""), "10s"); err != nil {
+		return Config{}, err
+	}
+	if cfg.Monitor.MaxBodyBytes, err = parsePositiveInt64("HTTP_MAX_BODY_BYTES", env.getenv("HTTP_MAX_BODY_BYTES", ""), "1048576"); err != nil {
+		return Config{}, err
+	}
+	if cfg.Monitor.RateLimitRPS, err = parseNonNegativeInt("HTTP_RATE_LIMIT_RPS", env.getenv("HTTP_RATE_LIMIT_RPS", ""), "50"); err != nil {
+		return Config{}, err
+	}
+	if cfg.Monitor.RateLimitBurst, err = parseNonNegativeInt("HTTP_RATE_LIMIT_BURST", env.getenv("HTTP_RATE_LIMIT_BURST", ""), "100"); err != nil {
+		return Config{}, err
+	}
 	if err := cfg.validate(); err != nil {
 		return Config{}, err
 	}
@@ -213,12 +275,36 @@ func (cfg Config) validate() error {
 	if wildcard && len(cfg.CORS.AllowedOrigins) != 1 {
 		return fmt.Errorf("CORS_ALLOWED_ORIGINS cannot mix * with explicit origins")
 	}
+	if len(cfg.Auth.JWTSecret) < 16 {
+		return fmt.Errorf("JWT_SECRET must be at least 16 characters")
+	}
+	if cfg.Monitor.Window < 30*time.Second || cfg.Monitor.Window > 24*time.Hour {
+		return fmt.Errorf("MONITOR_WINDOW must be between 30s and 24h")
+	}
+	if cfg.Monitor.RequestTimeout > cfg.HTTP.WriteTimeout {
+		return fmt.Errorf("HTTP_REQUEST_TIMEOUT cannot exceed HTTP_WRITE_TIMEOUT")
+	}
+	if cfg.Monitor.MaxBodyBytes < 1024 || cfg.Monitor.MaxBodyBytes > 32<<20 {
+		return fmt.Errorf("HTTP_MAX_BODY_BYTES must be between 1024 and 33554432")
+	}
+	if cfg.Monitor.RateLimitRPS > 10000 {
+		return fmt.Errorf("HTTP_RATE_LIMIT_RPS must be at most 10000")
+	}
+	if cfg.Monitor.RateLimitRPS > 0 && (cfg.Monitor.RateLimitBurst < cfg.Monitor.RateLimitRPS || cfg.Monitor.RateLimitBurst > 20000) {
+		return fmt.Errorf("HTTP_RATE_LIMIT_BURST must be between the rate and 20000")
+	}
+	if cfg.Monitor.ErrorCount > 100000 || cfg.Monitor.TimeoutCount > 100000 {
+		return fmt.Errorf("monitor thresholds are too large")
+	}
 	if cfg.AppEnv == EnvProduction {
 		if cfg.Postgres.Password == "change-me" {
 			return fmt.Errorf("POSTGRES_PASSWORD must be changed when APP_ENV is production")
 		}
 		if cfg.Postgres.SSLMode == "disable" {
 			return fmt.Errorf("POSTGRES_SSLMODE cannot be disable when APP_ENV is production")
+		}
+		if cfg.Auth.JWTSecret == "change-me-jwt-secret" || cfg.Auth.JWTSecret == "change-me" {
+			return fmt.Errorf("JWT_SECRET must be changed when APP_ENV is production")
 		}
 	}
 	return nil
@@ -249,6 +335,28 @@ func parsePositiveInt(key, value, fallback string) (int, error) {
 		value = fallback
 	}
 	number, err := strconv.Atoi(strings.TrimSpace(value))
+	if err != nil || number <= 0 {
+		return 0, fmt.Errorf("%s must be a positive integer", key)
+	}
+	return number, nil
+}
+
+func parsePercent(key, value, fallback string) (int, error) {
+	if strings.TrimSpace(value) == "" {
+		value = fallback
+	}
+	number, err := strconv.Atoi(strings.TrimSpace(value))
+	if err != nil || number < 0 || number > 100 {
+		return 0, fmt.Errorf("%s must be an integer from 0 to 100", key)
+	}
+	return number, nil
+}
+
+func parsePositiveInt64(key, value, fallback string) (int64, error) {
+	if strings.TrimSpace(value) == "" {
+		value = fallback
+	}
+	number, err := strconv.ParseInt(strings.TrimSpace(value), 10, 64)
 	if err != nil || number <= 0 {
 		return 0, fmt.Errorf("%s must be a positive integer", key)
 	}

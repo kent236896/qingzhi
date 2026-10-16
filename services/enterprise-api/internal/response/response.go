@@ -14,10 +14,16 @@ const (
 	CodeOK               = 0
 	CodeInvalidParams    = 40000
 	CodeBadRequest       = 40001
+	CodeUnauthorized     = 40100
+	CodeForbidden        = 40300
 	CodeNotFound         = 40400
+	CodeConflict         = 40900
 	CodeMethodNotAllowed = 40500
+	CodePayloadTooLarge  = 41300
+	CodeTooManyRequests  = 42900
 	CodeInternal         = 50000
 	CodeNotReady         = 50301
+	CodeTimeout          = 50400
 )
 
 // Body is the ordinary JSON API envelope.

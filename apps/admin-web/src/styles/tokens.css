@@ -1,0 +1,74 @@
+:root {
+  --qz-font: 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --qz-font-sm: 12px;
+  --qz-font-md: 14px;
+  --qz-font-lg: 16px;
+  --qz-font-xl: 20px;
+
+  --qz-brand: #4f46e5;
+  --qz-brand-hover: #4338ca;
+  --qz-brand-active: #3730a3;
+  --qz-brand-light: #eef2ff;
+  --qz-brand-disabled: #c7d2fe;
+  --qz-bg: #f8fafc;
+  --qz-surface: #ffffff;
+  --qz-text: #0f172a;
+  --qz-text-secondary: #64748b;
+  --qz-text-placeholder: #94a3b8;
+  --qz-text-disabled: #94a3b8;
+  --qz-border: #e2e8f0;
+  --qz-hover: #f1f5f9;
+  --qz-disabled-bg: #f1f5f9;
+  --qz-success: #16a34a;
+  --qz-success-light: #f0fdf4;
+  --qz-warning: #d97706;
+  --qz-warning-light: #fffbeb;
+  --qz-danger: #dc2626;
+  --qz-danger-hover: #b91c1c;
+  --qz-danger-light: #fef2f2;
+  --qz-focus: #4f46e5;
+
+  --qz-aside-width: 232px;
+  --qz-aside-collapsed: 64px;
+  --qz-header-height: 56px;
+  --qz-content-padding: 24px;
+  --qz-content-padding-sm: 16px;
+  --qz-card-padding: 24px;
+  --qz-control-height: 32px;
+
+  --qz-space-1: 4px;
+  --qz-space-2: 8px;
+  --qz-space-3: 12px;
+  --qz-space-4: 16px;
+  --qz-space-5: 24px;
+  --qz-space-6: 32px;
+
+  --qz-radius: 8px;
+  --qz-radius-control: 6px;
+
+  --td-brand-color: var(--qz-brand);
+  --td-brand-color-hover: var(--qz-brand-hover);
+  --td-brand-color-active: var(--qz-brand-active);
+  --td-brand-color-light: var(--qz-brand-light);
+  --td-brand-color-focus: var(--qz-brand-light);
+  --td-brand-color-disabled: var(--qz-brand-disabled);
+  --td-bg-color-page: var(--qz-bg);
+  --td-bg-color-container: var(--qz-surface);
+  --td-bg-color-container-hover: var(--qz-hover);
+  --td-bg-color-component-disabled: var(--qz-disabled-bg);
+  --td-text-color-primary: var(--qz-text);
+  --td-text-color-secondary: var(--qz-text-secondary);
+  --td-text-color-placeholder: var(--qz-text-placeholder);
+  --td-text-color-disabled: var(--qz-text-disabled);
+  --td-text-color-link: var(--qz-brand);
+  --td-text-color-anti: #ffffff;
+  --td-component-stroke: var(--qz-border);
+  --td-component-border: var(--qz-border);
+  --td-error-color: var(--qz-danger);
+  --td-error-color-hover: var(--qz-danger-hover);
+  --td-success-color: var(--qz-success);
+  --td-warning-color: var(--qz-warning);
+  --td-radius-default: var(--qz-radius-control);
+  --td-radius-medium: var(--qz-radius);
+  --td-comp-size-m: var(--qz-control-height);
+}

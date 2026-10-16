@@ -9,6 +9,17 @@ function timeoutMs(): number {
 export const http = createHttpClient({
   baseURL: import.meta.env.VITE_API_BASE_URL,
   timeout: timeoutMs(),
+  getAccessToken() {
+    return localStorage.getItem('qz_access_token')
+  },
+  onUnauthorized() {
+    localStorage.removeItem('qz_access_token')
+    localStorage.removeItem('qz_tenant_id')
+    if (!window.location.pathname.startsWith('/login')) {
+      const redirect = encodeURIComponent(window.location.pathname + window.location.search)
+      window.location.assign(`/login?redirect=${redirect}`)
+    }
+  },
   onError(error) {
     feedback.error(error.message)
   },

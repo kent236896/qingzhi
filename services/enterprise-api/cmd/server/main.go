@@ -8,10 +8,15 @@ import (
 	"os"
 	"time"
 
+	"qingzhi/enterprise-api/internal/auth"
 	"qingzhi/enterprise-api/internal/config"
+	"qingzhi/enterprise-api/internal/dict"
+	"qingzhi/enterprise-api/internal/identity"
+	"qingzhi/enterprise-api/internal/monitor"
 	"qingzhi/enterprise-api/internal/platform/database"
 	"qingzhi/enterprise-api/internal/platform/logger"
 	"qingzhi/enterprise-api/internal/platform/redis"
+	"qingzhi/enterprise-api/internal/security"
 	"qingzhi/enterprise-api/internal/server"
 )
 
@@ -37,7 +42,17 @@ func run() int {
 		slog.Int("redis_port", cfg.Redis.Port),
 	)
 
+	tokens, err := auth.NewTokenIssuer(cfg.Auth.JWTSecret, cfg.Auth.TokenTTL)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "configuration error: %s\n", err)
+		return 1
+	}
+
 	var databasePinger interface{ Ping(context.Context) error }
+	var identityService *identity.Service
+	var dictService *dict.Service
+	var securityService *security.Service
+	var alertStore monitor.AlertStore
 	db, err := database.OpenPostgres(cfg.Postgres)
 	if err != nil {
 		log.Error("postgres initialization failed",
@@ -46,6 +61,10 @@ func run() int {
 		)
 	} else {
 		databasePinger = db
+		identityService = identity.NewService(identity.NewGormStore(db.GORM()))
+		dictService = dict.NewService(dict.NewGormStore(db.GORM()))
+		securityService = security.NewService(security.NewGormStore(db.GORM()))
+		alertStore = monitor.NewGormStore(db.GORM())
 		defer func() {
 			if closeErr := db.Close(); closeErr != nil {
 				log.Error("postgres close failed", slog.String("component", "app"), slog.String("error", closeErr.Error()))
@@ -62,11 +81,21 @@ func run() int {
 	}()
 	logDependency(log, "redis", redisClient.Ping)
 
+	monitorService := monitor.New(cfg.Monitor, log, databasePinger, redisClient, alertStore)
+	monitorCtx, monitorCancel := context.WithCancel(context.Background())
+	defer monitorCancel()
+	go monitorService.Run(monitorCtx)
+
 	srv := server.New(server.Dependencies{
 		Config:   cfg,
 		Logger:   log,
 		Database: databasePinger,
 		Redis:    redisClient,
+		Identity: identityService,
+		Dict:     dictService,
+		Security: securityService,
+		Monitor:  monitorService,
+		Tokens:   tokens,
 	})
 	if err := srv.Run(); err != nil {
 		log.Error("server stopped", slog.String("component", "app"), slog.String("error", err.Error()))

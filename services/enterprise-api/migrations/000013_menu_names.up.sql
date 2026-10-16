@@ -1,0 +1,11 @@
+UPDATE sys_menus
+SET name = '首页', parent_id = NULL, sort = 0
+WHERE id = 'a1000000-0000-4000-8000-000000000011';
+
+UPDATE sys_menus SET name = '租户管理' WHERE id = 'a1000000-0000-4000-8000-000000000012';
+UPDATE sys_menus SET name = '组织管理' WHERE id = 'a1000000-0000-4000-8000-000000000013';
+UPDATE sys_menus SET name = '岗位管理' WHERE id = 'a1000000-0000-4000-8000-000000000014';
+UPDATE sys_menus SET name = '菜单管理' WHERE id = 'a1000000-0000-4000-8000-000000000015';
+UPDATE sys_menus SET name = '用户管理' WHERE id = 'a1000000-0000-4000-8000-000000000016';
+UPDATE sys_menus SET name = '角色管理' WHERE id = 'a1000000-0000-4000-8000-000000000017';
+UPDATE sys_menus SET name = '字典管理' WHERE id = 'a1000000-0000-4000-8000-000000000018';

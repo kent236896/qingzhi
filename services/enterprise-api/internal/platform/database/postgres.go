@@ -39,6 +39,14 @@ func OpenPostgres(cfg config.PostgresConfig) (*Postgres, error) {
 	return &Postgres{gorm: db, sql: sqlDB, user: cfg.User, password: cfg.Password}, nil
 }
 
+// GORM returns the underlying session for repositories. Callers must not close it.
+func (p *Postgres) GORM() *gorm.DB {
+	if p == nil {
+		return nil
+	}
+	return p.gorm
+}
+
 // Ping checks that PostgreSQL can serve a connection.
 func (p *Postgres) Ping(ctx context.Context) error {
 	if p == nil || p.sql == nil {

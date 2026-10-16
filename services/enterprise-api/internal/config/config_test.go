@@ -22,6 +22,9 @@ func TestLoadFromEnvironment(t *testing.T) {
 	if cfg.HTTP.ReadTimeout != 15*time.Second || cfg.Postgres.MaxOpenConns != 25 {
 		t.Fatalf("defaults were not applied: %+v", cfg)
 	}
+	if cfg.Monitor.RateLimitRPS != 50 || cfg.Monitor.RequestTimeout != 10*time.Second || cfg.Monitor.MaxBodyBytes != 1048576 {
+		t.Fatalf("monitor defaults were not applied: %+v", cfg.Monitor)
+	}
 	if cfg.Postgres.Password != "change-me" {
 		t.Fatal("password was not loaded")
 	}
@@ -68,7 +71,8 @@ func TestLoadEnvFileDoesNotOverrideProcess(t *testing.T) {
 		"POSTGRES_DB=enterprise\n" +
 		"POSTGRES_SSLMODE=disable\n" +
 		"REDIS_HOST=127.0.0.1\n" +
-		"REDIS_PORT=6379\n"
+		"REDIS_PORT=6379\n" +
+		"JWT_SECRET=from-file-jwt-secret\n"
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -122,6 +126,8 @@ func setRequiredEnv(t *testing.T) {
 	t.Setenv("POSTGRES_SSLMODE", "disable")
 	t.Setenv("REDIS_HOST", "127.0.0.1")
 	t.Setenv("REDIS_PORT", "6379")
+	t.Setenv("JWT_SECRET", "test-jwt-secret-01")
+	t.Setenv("JWT_EXPIRE", "1h")
 }
 
 func clearRequiredEnv(t *testing.T) {
@@ -150,6 +156,8 @@ func clearRequiredEnv(t *testing.T) {
 		"REDIS_PORT",
 		"REDIS_PASSWORD",
 		"REDIS_DB",
+		"JWT_SECRET",
+		"JWT_EXPIRE",
 	} {
 		t.Setenv(key, "")
 		if err := os.Unsetenv(key); err != nil {

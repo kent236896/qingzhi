@@ -12,10 +12,15 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"qingzhi/enterprise-api/internal/auth"
 	"qingzhi/enterprise-api/internal/config"
+	"qingzhi/enterprise-api/internal/dict"
 	"qingzhi/enterprise-api/internal/handler"
+	"qingzhi/enterprise-api/internal/identity"
 	"qingzhi/enterprise-api/internal/middleware"
+	"qingzhi/enterprise-api/internal/monitor"
 	"qingzhi/enterprise-api/internal/response"
+	"qingzhi/enterprise-api/internal/security"
 )
 
 // Dependencies are the runtime collaborators of the HTTP server.
@@ -24,6 +29,11 @@ type Dependencies struct {
 	Logger   *slog.Logger
 	Database handler.Pinger
 	Redis    handler.Pinger
+	Identity *identity.Service
+	Dict     *dict.Service
+	Security *security.Service
+	Monitor  *monitor.Service
+	Tokens   *auth.TokenIssuer
 }
 
 // Server is the HTTP API process.
@@ -50,6 +60,9 @@ func New(deps Dependencies) *Server {
 	engine.Use(middleware.AccessLog(deps.Logger))
 	engine.Use(middleware.Recovery(deps.Logger))
 	engine.Use(middleware.CORS(deps.Config.CORS))
+	if deps.Monitor != nil {
+		engine.Use(deps.Monitor.Protect())
+	}
 
 	health := handler.Health{
 		Logger:   deps.Logger,
@@ -61,6 +74,43 @@ func New(deps Dependencies) *Server {
 	api.GET("/health/live", health.Live)
 	api.GET("/health/ready", health.Ready)
 	api.GET("/openapi.json", handler.OpenAPI)
+
+	authHandler := handler.Auth{
+		Logger:   deps.Logger,
+		Database: deps.Database,
+		Service:  deps.Identity,
+		Security: deps.Security,
+		Tokens:   deps.Tokens,
+	}
+	authHandler.RegisterPublic(api)
+
+	protected := api.Group("")
+	enforce := deps.Tokens != nil && deps.Identity != nil
+	if enforce {
+		protected.Use(auth.Guard{Tokens: deps.Tokens, Service: deps.Identity}.Authenticate())
+	}
+	protected.Use(security.OperateAudit(deps.Security, deps.Logger))
+	authHandler.RegisterProtected(protected)
+	handler.Identity{
+		Logger:   deps.Logger,
+		Database: deps.Database,
+		Service:  deps.Identity,
+		Security: deps.Security,
+	}.Register(protected, enforce)
+	handler.Dict{
+		Logger:   deps.Logger,
+		Database: deps.Database,
+		Service:  deps.Dict,
+	}.Register(protected, enforce)
+	handler.Security{
+		Logger:   deps.Logger,
+		Database: deps.Database,
+		Service:  deps.Security,
+	}.Register(protected, enforce)
+	handler.Monitor{
+		Logger:  deps.Logger,
+		Service: deps.Monitor,
+	}.Register(protected, enforce)
 
 	engine.NoRoute(func(c *gin.Context) {
 		response.Fail(c, http.StatusNotFound, response.CodeNotFound, "资源不存在", nil)

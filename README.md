@@ -2,7 +2,7 @@
 
 擎知是一套通用企业级后台管理系统的工程底座。当前阶段包含管理后台、Go API、PostgreSQL / Redis 开发环境，以及统一的配置、日志、错误、健康检查和 OpenAPI 机制。
 
-此阶段没有登录、用户、部门、角色、权限等业务模块，也没有业务数据表。
+当前可以维护账号、租户、部门、岗位、菜单、角色和字典，并支持 JWT 登录、菜单授权、数据权限、操作审计、登录日志、权限变更记录、安全策略、系统监控和异常告警。默认管理员（迁移后、且库中已有租户）：`admin` / `Admin@123456`。
 
 ## 环境
 
@@ -30,6 +30,7 @@ Docker、GNU Make、本机 PostgreSQL 和 Redis 不是编译前端或后端单�
 | Pinia | 4.0.3 |
 | Vue Router | 5.4.0 |
 | TDesign Vue Next | 1.20.9 |
+| TDesign Icons Vue Next | 0.4.11 |
 | Axios | 1.20.0 |
 | ESLint | 10.12.0 |
 | Prettier | 3.9.10 |
@@ -83,7 +84,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\migrate.ps1 versio
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\migrate.ps1 down
 ```
 
-`up` 执行全部未应用的迁移，`down` 只回滚一步。阶段 1 的基线迁移不创建表。
+`up` 执行全部未应用的迁移，`down` 只回滚一步。基线迁移不创建表；`000002_identity` 创建账号、租户和部门表，`000003_sys_prefix` 加上 `sys_` 前缀，`000004_sys_posts` 创建岗位表，`000005_sys_menus` 创建菜单表，`000006_sys_menus_seed` 写入默认菜单，`000007_sys_roles` 创建角色表，`000008_auth_data_scope` 增加数据范围并初始化管理员，`000009_menu_crud_buttons` 增加菜单增删改查按钮权限，`000010_sys_dicts` 创建字典类型表、字典数据表和「字典」菜单，`000011_sys_security` 创建登录日志、操作审计、权限变更记录和安全策略，`000012_sys_monitor` 创建告警表和「系统监控」菜单，`000013_menu_names` 把业务菜单改成四个字，并把「首页」调整为一级菜单。`000014_organization_root` 约束每个租户只有一个主体组织。配置需要 `JWT_SECRET`。请求防护和告警阈值见 `.env.example` 中的 `HTTP_*` 与 `MONITOR_*`。系统 CPU、内存和磁盘通过 `github.com/shirou/gopsutil/v3` 采集，因为 Go 标准库没有可移植的这些指标。限流只作用于当前 API 进程。
 
 后端和前端分两个终端启动：
 

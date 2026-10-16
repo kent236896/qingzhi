@@ -43,7 +43,15 @@ export interface HttpClientOptions {
   timeout: number
   onError?: (error: ApiError) => void
   generateRequestId?: () => string
+  getAccessToken?: () => string | null | undefined
+  onUnauthorized?: () => void
   adapter?: AxiosAdapter
+}
+
+declare module 'axios' {
+  export interface AxiosRequestConfig {
+    skipErrorToast?: boolean
+  }
 }
 
 interface EnvelopeBody {
@@ -69,6 +77,10 @@ export function createHttpClient(options: HttpClientOptions) {
     if (!headers.get(REQUEST_ID_HEADER)) {
       headers.set(REQUEST_ID_HEADER, (options.generateRequestId ?? createRequestId)())
     }
+    const token = options.getAccessToken?.()
+    if (token && !headers.get('Authorization')) {
+      headers.set('Authorization', `Bearer ${token}`)
+    }
     config.headers = headers
     return config
   })
@@ -79,6 +91,9 @@ export function createHttpClient(options: HttpClientOptions) {
       return parseSuccess<T>(response)
     } catch (error) {
       const apiError = normalizeAxiosError(error)
+      if (apiError.httpStatus === 401) {
+        options.onUnauthorized?.()
+      }
       if (!config.skipErrorToast) {
         options.onError?.(apiError)
       }
@@ -90,6 +105,18 @@ export function createHttpClient(options: HttpClientOptions) {
     request,
     get<T>(url: string, config?: AxiosRequestConfig) {
       return request<T>({ ...config, method: 'GET', url })
+    },
+    post<T>(url: string, data?: unknown, config?: AxiosRequestConfig) {
+      return request<T>({ ...config, method: 'POST', url, data })
+    },
+    put<T>(url: string, data?: unknown, config?: AxiosRequestConfig) {
+      return request<T>({ ...config, method: 'PUT', url, data })
+    },
+    patch<T>(url: string, data?: unknown, config?: AxiosRequestConfig) {
+      return request<T>({ ...config, method: 'PATCH', url, data })
+    },
+    delete<T>(url: string, config?: AxiosRequestConfig) {
+      return request<T>({ ...config, method: 'DELETE', url })
     },
   }
 }
@@ -185,6 +212,8 @@ function statusMessage(status: number): string {
       return '没有访问权限'
     case 404:
       return '资源不存在'
+    case 409:
+      return '数据已存在'
     case 405:
       return '请求方法不允许'
     case 500:

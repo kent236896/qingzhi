@@ -135,7 +135,7 @@ func TestOpenAPIMatchesRoutes(t *testing.T) {
 	}
 	actual := map[string]struct{}{}
 	for _, route := range srv.Routes() {
-		actual[route.Method+" "+route.Path] = struct{}{}
+		actual[route.Method+" "+canonicalPath(route.Path)] = struct{}{}
 	}
 	for route := range expected {
 		if _, ok := actual[route]; !ok {
@@ -155,6 +155,34 @@ func TestOpenAPIMatchesRoutes(t *testing.T) {
 	if !bytes.Contains(recorder.Body.Bytes(), []byte(`"/api/v1/health/live"`)) {
 		t.Fatal("openapi response does not document the live route")
 	}
+}
+
+func TestMonitorRequiresService(t *testing.T) {
+	srv, _ := newServer(t, nil, nil)
+	recorder := perform(srv, http.MethodGet, "/api/v1/monitor/overview", "req-monitor")
+	body := decode(t, recorder.Body.Bytes())
+	if recorder.Code != http.StatusServiceUnavailable || body["code"] != float64(50301) {
+		t.Fatalf("status %d body %#v", recorder.Code, body)
+	}
+}
+
+func TestIdentityRequiresDatabase(t *testing.T) {
+	srv, _ := newServer(t, nil, nil)
+	recorder := perform(srv, http.MethodGet, "/api/v1/tenants", "req-tenants")
+	body := decode(t, recorder.Body.Bytes())
+	if recorder.Code != http.StatusServiceUnavailable || body["code"] != float64(50301) {
+		t.Fatalf("status %d body %#v", recorder.Code, body)
+	}
+}
+
+func canonicalPath(path string) string {
+	parts := strings.Split(path, "/")
+	for i, part := range parts {
+		if strings.HasPrefix(part, ":") && len(part) > 1 {
+			parts[i] = "{" + part[1:] + "}"
+		}
+	}
+	return strings.Join(parts, "/")
 }
 
 func newServer(t *testing.T, database, redis stubOrNil) (*server.Server, *bytes.Buffer) {

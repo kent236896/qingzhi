@@ -22,6 +22,12 @@ func BindJSON(c *gin.Context, dst any) bool {
 }
 
 func writeBindError(c *gin.Context, dst any, err error) {
+	var tooLarge *http.MaxBytesError
+	if errors.As(err, &tooLarge) || strings.Contains(err.Error(), "request body too large") {
+		Fail(c, http.StatusRequestEntityTooLarge, CodePayloadTooLarge, "请求体过大", nil)
+		return
+	}
+
 	var syntax *json.SyntaxError
 	var unmarshal *json.UnmarshalTypeError
 	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) || errors.As(err, &syntax) || errors.As(err, &unmarshal) {
