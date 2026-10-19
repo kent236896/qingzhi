@@ -83,6 +83,8 @@ func moduleOf(path string) string {
 		return "用户"
 	case strings.Contains(path, "/tenants"):
 		return "租户"
+	case strings.Contains(path, "/weknora"):
+		return "模型配置"
 	default:
 		return "其他"
 	}
@@ -96,6 +98,14 @@ func actionOf(method, path string) string {
 		return "分配用户"
 	case strings.Contains(path, "/depts"):
 		return "分配部门"
+	case strings.Contains(path, "/debug"):
+		return "调试"
+	case strings.Contains(path, "/models/test"):
+		return "测试"
+	case strings.Contains(path, "/copy"):
+		return "复制"
+	case strings.Contains(path, "/credentials"):
+		return "密钥"
 	case method == "POST":
 		return "新增"
 	case method == "PATCH" || method == "PUT":

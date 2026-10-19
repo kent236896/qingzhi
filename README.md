@@ -134,4 +134,6 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\check-infra.ps1
 - [开发](docs/development.md)
 - [测试](docs/testing.md)
 
-知识管理是独立菜单。它把文档交给本机配置的 WeKnora，并在启用 Wiki 时展示图谱。上传限制来自服务端配置。
+知识管理是独立菜单。它把文档交给本机配置的 WeKnora，并在启用 Wiki 时展示图谱。上传限制来自服务端配置。新建知识库使用「模型配置」里的场景默认模型。
+
+模型配置只给超级管理员。模型本身和密钥留在 WeKnora，本系统只保存每个场景默认使用哪个模型。

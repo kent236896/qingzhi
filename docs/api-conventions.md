@@ -39,6 +39,8 @@
 
 校验失败时 `data.fields` 给出字段和可展示的说明，例如 `name为必填项`。响应不包含堆栈、SQL 或配置。
 
+模型配置接口在 `/api/v1/weknora/models`。查看需要 `model:query`，增删改、复制、密钥、测试和调试需要 `model:manage`。这两项只授予超级管理员。模型本体和密钥只存在于 WeKnora，本系统只保存场景默认绑定 `sys_weknora_model_bindings`。角色为 `embedding`、`summary`、`wiki_synthesis`、`vlm`、`asr`、`rerank`。绑定表优先；`WEKNORA_EMBEDDING_MODEL_ID`、`WEKNORA_SUMMARY_MODEL_ID`、`WEKNORA_WIKI_SYNTHESIS_MODEL_ID` 只在对应角色还没有记录时写入一次。更换向量默认模型只影响之后新建的知识库。WeKnora 的 API Key 需要 `manage_models` 或 full-access。内网模型地址要在 WeKnora 配置 `SSRF_WHITELIST_EXTRA`。`WEKNORA_OLLAMA_ENABLED` 默认关闭，关闭时本地模型接口返回 404。测试和调试按用户每分钟 5 次。
+
 知识库接口在 `/api/v1/knowledge-bases`。进入页面需要 `knowledge:query`。个人知识库可由本人创建并分享；组织、岗位、角色知识库以及删除、改租户需要 `knowledge:manage`。上传大小读取 `GET /api/v1/knowledge-bases/limits`。Wiki 状态为 `disabled`、`empty`、`generating`、`ready`、`timeout`：文档都结束后页面数仍为 0，并且等待达到 `KB_WIKI_STATUS_TIMEOUT_MIN`，记为超时，不把文档标成失败。
 
 ## Request ID

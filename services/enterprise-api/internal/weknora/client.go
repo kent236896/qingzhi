@@ -43,19 +43,67 @@ type Client interface {
 }
 
 // HTTPClient calls WeKnora through the official Go SDK.
-// Creating a knowledge base and reading Wiki still use the SDK raw request,
-// because the typed create payload omits indexing and wiki settings, and the SDK has no Wiki methods.
+// Creating a knowledge base, reading Wiki, and model endpoints whose SDK structs drop fields
+// still use the SDK raw request. Both paths share the base URL, API key, timeout, and request id.
 type HTTPClient struct {
-	sdk *sdk.Client
+	sdk     *sdk.Client
+	baseURL string
+	apiKey  string
+	http    *http.Client
 }
 
 func NewHTTPClient(baseURL, apiKey string, timeout time.Duration) *HTTPClient {
 	if timeout <= 0 {
 		timeout = 30 * time.Second
 	}
+	base := strings.TrimRight(baseURL, "/")
 	return &HTTPClient{
-		sdk: sdk.NewClient(strings.TrimRight(baseURL, "/"), sdk.WithAPIKey(apiKey), sdk.WithTimeout(timeout)),
+		sdk:     sdk.NewClient(base, sdk.WithAPIKey(apiKey), sdk.WithTimeout(timeout)),
+		baseURL: base,
+		apiKey:  apiKey,
+		http:    &http.Client{Timeout: timeout},
 	}
+}
+
+// Exchange performs a JSON request and returns the status and body, including non-2xx responses.
+// Transport failures are returned as err. The body is limited to 8 MiB.
+func (c *HTTPClient) Exchange(ctx context.Context, method, path string, body any) (int, []byte, error) {
+	resp, err := c.sdk.Raw(ctx, method, path, body)
+	if err != nil {
+		return 0, nil, err
+	}
+	defer resp.Body.Close()
+	payload, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
+	if err != nil {
+		return resp.StatusCode, nil, err
+	}
+	return resp.StatusCode, payload, nil
+}
+
+// ExchangeMultipart forwards a prepared multipart body. Content-Type must include the boundary.
+func (c *HTTPClient) ExchangeMultipart(ctx context.Context, path, contentType string, body []byte) (int, []byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+path, strings.NewReader(string(body)))
+	if err != nil {
+		return 0, nil, err
+	}
+	req.Header.Set("Content-Type", contentType)
+	req.Header.Set("Accept", "application/json")
+	if c.apiKey != "" {
+		req.Header.Set("X-API-Key", c.apiKey)
+	}
+	if id, _ := ctx.Value("RequestID").(string); id != "" {
+		req.Header.Set("X-Request-ID", id)
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return 0, nil, err
+	}
+	defer resp.Body.Close()
+	payload, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
+	if err != nil {
+		return resp.StatusCode, nil, err
+	}
+	return resp.StatusCode, payload, nil
 }
 
 type SystemInfo struct {

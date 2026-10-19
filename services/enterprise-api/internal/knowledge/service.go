@@ -24,10 +24,29 @@ type Service struct {
 	cfg       config.KnowledgeConfig
 	remoteCfg config.WeKnoraConfig
 	log       *slog.Logger
+	directory ModelDirectory
 }
 
 func NewService(store Store, users *identity.Service, remote weknora.Client, knowledge config.KnowledgeConfig, remoteCfg config.WeKnoraConfig, log *slog.Logger) *Service {
 	return &Service{store: store, identity: users, remote: remote, cfg: knowledge, remoteCfg: remoteCfg, log: log}
+}
+
+// SetModelDirectory makes scene bindings the source of default model ids.
+func (s *Service) SetModelDirectory(directory ModelDirectory) {
+	if s != nil {
+		s.directory = directory
+	}
+}
+
+func (s *Service) Models(ctx context.Context) (KnowledgeModels, error) {
+	if s.directory != nil {
+		return s.directory.KnowledgeModels(ctx)
+	}
+	return KnowledgeModels{
+		Embedding:     BoundModel{ID: s.remoteCfg.EmbeddingModelID},
+		Summary:       BoundModel{ID: s.remoteCfg.SummaryModelID},
+		WikiSynthesis: BoundModel{ID: s.remoteCfg.WikiSynthesisModelID},
+	}, nil
 }
 
 func (s *Service) Limits() Limits {
@@ -122,10 +141,14 @@ func (s *Service) Create(ctx context.Context, actor Actor, input CreateInput) (B
 	if err != nil {
 		return Base{}, err
 	}
-	if input.WikiEnabled && s.remoteCfg.WikiSynthesisModelID == "" {
-		return Base{}, invalid("已勾选 Wiki，但未配置 WEKNORA_WIKI_SYNTHESIS_MODEL_ID")
+	defaults, err := s.Models(ctx)
+	if err != nil {
+		return Base{}, notReady("无法读取默认模型")
 	}
-	if s.remoteCfg.EmbeddingModelID == "" || s.remoteCfg.SummaryModelID == "" {
+	if input.WikiEnabled && defaults.WikiSynthesis.ID == "" {
+		return Base{}, invalid("已勾选 Wiki，但未绑定 Wiki 生成模型")
+	}
+	if defaults.Embedding.ID == "" || defaults.Summary.ID == "" {
 		return Base{}, invalid("未配置知识库使用的向量模型或摘要模型")
 	}
 	shares := []string{}
@@ -137,11 +160,11 @@ func (s *Service) Create(ctx context.Context, actor Actor, input CreateInput) (B
 	}
 	remoteInput := weknora.CreateKnowledgeBaseInput{
 		Name: input.Name, Description: input.Description,
-		EmbeddingModelID: s.remoteCfg.EmbeddingModelID, SummaryModelID: s.remoteCfg.SummaryModelID,
+		EmbeddingModelID: defaults.Embedding.ID, SummaryModelID: defaults.Summary.ID,
 		WikiEnabled: input.WikiEnabled,
 	}
 	if input.WikiEnabled {
-		remoteInput.Wiki = &weknora.WikiConfig{SynthesisModelID: s.remoteCfg.WikiSynthesisModelID, ExtractionGranularity: "standard"}
+		remoteInput.Wiki = &weknora.WikiConfig{SynthesisModelID: defaults.WikiSynthesis.ID, ExtractionGranularity: "standard"}
 	}
 	started := time.Now()
 	remoteBase, err := s.remote.CreateKnowledgeBase(ctx, remoteInput)

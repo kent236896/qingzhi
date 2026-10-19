@@ -122,7 +122,15 @@ func (h Knowledge) options(c *gin.Context) {
 			users = append(users, choice{ID: user.ID, Name: user.Nickname + "（" + user.Username + "）"})
 		}
 	}
-	response.OK(c, map[string]any{"tenants": tenants, "organizations": orgs, "posts": posts, "roles": roles, "users": users, "can_manage": actor.CanManage})
+	models, modelErr := h.Service.Models(c.Request.Context())
+	if modelErr != nil && h.Logger != nil {
+		h.Logger.Warn("knowledge default models unavailable", slog.String("component", "knowledge"), slog.String("error", modelErr.Error()))
+		models = knowledge.KnowledgeModels{}
+	}
+	response.OK(c, map[string]any{
+		"tenants": tenants, "organizations": orgs, "posts": posts, "roles": roles, "users": users,
+		"can_manage": actor.CanManage, "models": models,
+	})
 }
 
 func (h Knowledge) list(c *gin.Context) {

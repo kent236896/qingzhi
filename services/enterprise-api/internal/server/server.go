@@ -19,6 +19,7 @@ import (
 	"qingzhi/enterprise-api/internal/identity"
 	"qingzhi/enterprise-api/internal/knowledge"
 	"qingzhi/enterprise-api/internal/middleware"
+	"qingzhi/enterprise-api/internal/modelcfg"
 	"qingzhi/enterprise-api/internal/monitor"
 	"qingzhi/enterprise-api/internal/response"
 	"qingzhi/enterprise-api/internal/security"
@@ -32,6 +33,7 @@ type Dependencies struct {
 	Redis     handler.Pinger
 	Identity  *identity.Service
 	Knowledge *knowledge.Service
+	Models    *modelcfg.Service
 	Dict      *dict.Service
 	Security  *security.Service
 	Monitor   *monitor.Service
@@ -118,6 +120,10 @@ func New(deps Dependencies) *Server {
 		Database: deps.Database,
 		Service:  deps.Knowledge,
 		Identity: deps.Identity,
+	}.Register(protected, enforce)
+	handler.ModelConfig{
+		Logger:  deps.Logger,
+		Service: deps.Models,
 	}.Register(protected, enforce)
 
 	engine.NoRoute(func(c *gin.Context) {

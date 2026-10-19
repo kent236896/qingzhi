@@ -25,9 +25,58 @@
     { "name": "roles", "description": "租户角色" },
     { "name": "users", "description": "全局账号" },
     { "name": "members", "description": "租户成员与部门任职" },
-    { "name": "knowledge", "description": "知识库、文件与 Wiki" }
+    { "name": "knowledge", "description": "知识库、文件与 Wiki" },
+    { "name": "models", "description": "WeKnora 模型配置与场景默认绑定" }
   ],
   "paths": {
+    "/api/v1/weknora/model-providers": {
+      "get": { "tags": ["models"], "summary": "厂商目录", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "按类型返回厂商，图标仅在 icons=1 时返回" } } }
+    },
+    "/api/v1/weknora/model-providers/resolve": {
+      "get": { "tags": ["models"], "summary": "解析接入配置", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "协议与上下文预览" } } }
+    },
+    "/api/v1/weknora/model-bindings": {
+      "get": { "tags": ["models"], "summary": "场景默认模型", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "六个场景的当前绑定" } } }
+    },
+    "/api/v1/weknora/model-bindings/{role}": {
+      "put": { "tags": ["models"], "summary": "设置场景默认模型", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "已保存" } } }
+    },
+    "/api/v1/weknora/models": {
+      "get": { "tags": ["models"], "summary": "模型列表", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "不含密钥" } } },
+      "post": { "tags": ["models"], "summary": "创建模型", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "已创建" } } }
+    },
+    "/api/v1/weknora/models/test": {
+      "post": { "tags": ["models"], "summary": "连通性测试", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "可用性和耗时" } } }
+    },
+    "/api/v1/weknora/models/{id}": {
+      "get": { "tags": ["models"], "summary": "模型详情", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "不含密钥" } } },
+      "put": { "tags": ["models"], "summary": "更新模型", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "已更新" } } },
+      "delete": { "tags": ["models"], "summary": "删除模型", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "已删除或引用冲突" } } }
+    },
+    "/api/v1/weknora/models/{id}/copy": {
+      "post": { "tags": ["models"], "summary": "复制模型", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "新模型" } } }
+    },
+    "/api/v1/weknora/models/{id}/credentials": {
+      "put": { "tags": ["models"], "summary": "设置密钥", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "配置状态" } } }
+    },
+    "/api/v1/weknora/models/{id}/credentials/{field}": {
+      "delete": { "tags": ["models"], "summary": "清除密钥", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "已清除" } } }
+    },
+    "/api/v1/weknora/models/{id}/debug": {
+      "post": { "tags": ["models"], "summary": "调试模型", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "真实调用结果" } } }
+    },
+    "/api/v1/weknora/ollama/status": {
+      "get": { "tags": ["models"], "summary": "Ollama 状态", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "可用时返回状态，关闭时 404" } } }
+    },
+    "/api/v1/weknora/ollama/models": {
+      "get": { "tags": ["models"], "summary": "已安装的本地模型", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "模型列表" } } }
+    },
+    "/api/v1/weknora/ollama/models/download": {
+      "post": { "tags": ["models"], "summary": "下载本地模型", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "下载任务" } } }
+    },
+    "/api/v1/weknora/ollama/download/progress/{taskId}": {
+      "get": { "tags": ["models"], "summary": "本地下载进度", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "进度" } } }
+    },
     "/api/v1/knowledge-bases": {
       "get": { "tags": ["knowledge"], "summary": "可见知识库", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "分页列表" } } },
       "post": { "tags": ["knowledge"], "summary": "创建知识库", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "已创建" } } }

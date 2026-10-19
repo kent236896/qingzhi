@@ -1,6 +1,9 @@
 package knowledge
 
-import "time"
+import (
+	"context"
+	"time"
+)
 
 // Base is a local knowledge base. Callers see the local id, not the remote id.
 type Base struct {
@@ -55,6 +58,25 @@ type Page[T any] struct {
 	Page     int   `json:"page"`
 	PageSize int   `json:"page_size"`
 	Total    int64 `json:"total"`
+}
+
+// BoundModel is the scene default shown when creating a knowledge base.
+type BoundModel struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	DisplayName string `json:"display_name"`
+}
+
+// KnowledgeModels are the defaults used by a new knowledge base.
+type KnowledgeModels struct {
+	Embedding     BoundModel `json:"embedding"`
+	Summary       BoundModel `json:"summary"`
+	WikiSynthesis BoundModel `json:"wiki_synthesis"`
+}
+
+// ModelDirectory supplies scene default models. Env values are only a first-start fallback.
+type ModelDirectory interface {
+	KnowledgeModels(ctx context.Context) (KnowledgeModels, error)
 }
 
 // Limits tells the browser which uploads to accept.

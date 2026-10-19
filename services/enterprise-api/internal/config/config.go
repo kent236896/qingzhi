@@ -122,6 +122,7 @@ type WeKnoraConfig struct {
 	EmbeddingModelID     string
 	SummaryModelID       string
 	WikiSynthesisModelID string
+	OllamaEnabled        bool
 }
 
 // Secrets returns values that must be redacted.
@@ -280,6 +281,10 @@ func Load() (Config, error) {
 	cfg.WeKnora.EmbeddingModelID = strings.TrimSpace(env.getenv("WEKNORA_EMBEDDING_MODEL_ID", ""))
 	cfg.WeKnora.SummaryModelID = strings.TrimSpace(env.getenv("WEKNORA_SUMMARY_MODEL_ID", ""))
 	cfg.WeKnora.WikiSynthesisModelID = strings.TrimSpace(env.getenv("WEKNORA_WIKI_SYNTHESIS_MODEL_ID", ""))
+	cfg.WeKnora.OllamaEnabled, err = parseBool("WEKNORA_OLLAMA_ENABLED", env.getenv("WEKNORA_OLLAMA_ENABLED", "false"))
+	if err != nil {
+		return Config{}, err
+	}
 	if cfg.Knowledge.MaxFileMB, err = parsePositiveInt("KB_UPLOAD_MAX_FILE_MB", env.getenv("KB_UPLOAD_MAX_FILE_MB", ""), "20"); err != nil {
 		return Config{}, err
 	}
@@ -442,6 +447,17 @@ func parsePositiveInt64(key, value, fallback string) (int64, error) {
 		return 0, fmt.Errorf("%s must be a positive integer", key)
 	}
 	return number, nil
+}
+
+func parseBool(key, value string) (bool, error) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "", "0", "false", "no", "off":
+		return false, nil
+	case "1", "true", "yes", "on":
+		return true, nil
+	default:
+		return false, fmt.Errorf("%s must be true or false", key)
+	}
 }
 
 func parseNonNegativeInt(key, value, fallback string) (int, error) {

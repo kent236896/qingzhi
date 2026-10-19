@@ -13,6 +13,7 @@ import (
 	"qingzhi/enterprise-api/internal/dict"
 	"qingzhi/enterprise-api/internal/identity"
 	"qingzhi/enterprise-api/internal/knowledge"
+	"qingzhi/enterprise-api/internal/modelcfg"
 	"qingzhi/enterprise-api/internal/monitor"
 	"qingzhi/enterprise-api/internal/platform/database"
 	"qingzhi/enterprise-api/internal/platform/logger"
@@ -53,6 +54,7 @@ func run() int {
 	var databasePinger interface{ Ping(context.Context) error }
 	var identityService *identity.Service
 	var knowledgeService *knowledge.Service
+	var modelService *modelcfg.Service
 	var dictService *dict.Service
 	var securityService *security.Service
 	var alertStore monitor.AlertStore
@@ -79,6 +81,14 @@ func run() int {
 			}
 		}
 		knowledgeService = knowledge.NewService(knowledge.NewGormStore(db.GORM()), identityService, remote, cfg.Knowledge, cfg.WeKnora, log)
+		modelService = modelcfg.NewService(modelcfg.NewGormStore(db.GORM()), nil, cfg.WeKnora, log)
+		if httpRemote, ok := remote.(*weknora.HTTPClient); ok {
+			modelService = modelcfg.NewService(modelcfg.NewGormStore(db.GORM()), modelcfg.NewHTTPRemote(httpRemote), cfg.WeKnora, log)
+		}
+		if seedErr := modelService.SeedFallback(context.Background()); seedErr != nil {
+			log.Warn("model binding fallback failed", slog.String("component", "app"), slog.String("error", seedErr.Error()))
+		}
+		knowledgeService.SetModelDirectory(modelService)
 		dictService = dict.NewService(dict.NewGormStore(db.GORM()))
 		securityService = security.NewService(security.NewGormStore(db.GORM()))
 		alertStore = monitor.NewGormStore(db.GORM())
@@ -110,6 +120,7 @@ func run() int {
 		Redis:     redisClient,
 		Identity:  identityService,
 		Knowledge: knowledgeService,
+		Models:    modelService,
 		Dict:      dictService,
 		Security:  securityService,
 		Monitor:   monitorService,
