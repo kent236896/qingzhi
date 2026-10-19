@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/url"
-	"strings"
 
 	"qingzhi/enterprise-api/internal/weknora"
 )
