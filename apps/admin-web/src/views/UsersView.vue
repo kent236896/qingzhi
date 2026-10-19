@@ -10,9 +10,12 @@ import {
   getTenant,
   getUser,
   listOrganizations,
+  listPosts,
+  listUserPosts,
   listUsers,
   removeMember,
   replaceMemberAssignments,
+  replaceUserPosts,
   sexLabel,
   statusLabel,
   updateUser,
@@ -67,6 +70,13 @@ const membershipForm = ref({
   organizationIds: [] as string[],
   primaryOrganizationId: '',
 })
+const postVisible = ref(false)
+const postSaving = ref(false)
+const postTenantId = ref('')
+const postUserId = ref('')
+const postIds = ref<string[]>([])
+const postOptions = ref<{ label: string; value: string }[]>([])
+const assignedPosts = ref<Record<string, string[]>>({})
 
 const columns = [
   { colKey: 'avatar', title: '头像', width: 72 },
@@ -181,6 +191,19 @@ async function openDetail(row: UserAccount) {
     const userResponse = await getUser(row.id)
     detail.value = userResponse.data
     detailVisible.value = true
+    assignedPosts.value = {}
+    await Promise.all(
+      (userResponse.data.memberships ?? []).map(async (membership) => {
+        if (membership.tenant_id !== auth.tenantId) {
+          return
+        }
+        const postResponse = await listUserPosts(membership.tenant_id, userResponse.data.id)
+        assignedPosts.value = {
+          ...assignedPosts.value,
+          [membership.tenant_id]: postResponse.data.map((item) => item.name),
+        }
+      }),
+    )
     sessionTenantName.value = ''
     if (auth.tenantId) {
       try {
@@ -254,6 +277,33 @@ async function openAdjust(membership: UserMembership) {
     await loadOrgOptions(membership.tenant_id)
   } catch {
     // The HTTP client already shows the server message.
+  }
+}
+
+async function openPosts(membership: UserMembership) {
+  if (!detail.value) {
+    return
+  }
+  postTenantId.value = membership.tenant_id
+  postUserId.value = detail.value.id
+  postVisible.value = true
+  const [posts, assigned] = await Promise.all([
+    listPosts(membership.tenant_id, { page: 1, page_size: 100 }),
+    listUserPosts(membership.tenant_id, detail.value.id),
+  ])
+  postOptions.value = posts.data.items.map((item) => ({ label: item.name, value: item.id }))
+  postIds.value = assigned.data.map((item) => item.id)
+}
+
+async function savePosts() {
+  postSaving.value = true
+  try {
+    const response = await replaceUserPosts(postTenantId.value, postUserId.value, postIds.value)
+    assignedPosts.value = { ...assignedPosts.value, [postTenantId.value]: response.data.map((item) => item.name) }
+    feedback.success('岗位任职已保存')
+    postVisible.value = false
+  } finally {
+    postSaving.value = false
   }
 }
 
@@ -475,6 +525,15 @@ onMounted(() => {
             </t-button>
             <span v-if="!canManageMembership(membership)" class="hint">需登录该租户后调整</span>
           </div>
+          <p class="hint">岗位：{{ (assignedPosts[membership.tenant_id] ?? []).join('、') || '未任职' }}</p>
+          <t-button
+            v-if="canUpdate && canManageMembership(membership)"
+            theme="primary"
+            variant="text"
+            @click="openPosts(membership)"
+          >
+            调整岗位
+          </t-button>
         </t-card>
       </template>
     </t-drawer>
@@ -513,6 +572,14 @@ onMounted(() => {
             placeholder="选择一个主部门"
             :options="primaryOptions.map((item) => ({ label: item.label, value: item.id }))"
           />
+        </t-form-item>
+      </t-form>
+    </t-dialog>
+
+    <t-dialog v-model:visible="postVisible" header="调整岗位" :confirm-btn="{ content: '保存', loading: postSaving }" @confirm="savePosts">
+      <t-form label-align="top">
+        <t-form-item label="岗位">
+          <t-select v-model="postIds" multiple placeholder="选择一个或多个岗位" :options="postOptions" />
         </t-form-item>
       </t-form>
     </t-dialog>

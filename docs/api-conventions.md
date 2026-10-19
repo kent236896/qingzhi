@@ -39,6 +39,8 @@
 
 校验失败时 `data.fields` 给出字段和可展示的说明，例如 `name为必填项`。响应不包含堆栈、SQL 或配置。
 
+知识库接口在 `/api/v1/knowledge-bases`。进入页面需要 `knowledge:query`。个人知识库可由本人创建并分享；组织、岗位、角色知识库以及删除、改租户需要 `knowledge:manage`。上传大小读取 `GET /api/v1/knowledge-bases/limits`。Wiki 状态为 `disabled`、`empty`、`generating`、`ready`、`timeout`：文档都结束后页面数仍为 0，并且等待达到 `KB_WIKI_STATUS_TIMEOUT_MIN`，记为超时，不把文档标成失败。
+
 ## Request ID
 
 请求头 `X-Request-ID` 可选。值必须是 8 到 64 个字符，只含字母、数字、点、下划线和中划线。缺失或非法时服务端生成 UUID，并写回响应头和 `request_id`。

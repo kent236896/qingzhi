@@ -147,17 +147,27 @@ func (s *Service) Protect() gin.HandlerFunc {
 			s.record(c, start, false)
 			return
 		}
-		if s.cfg.MaxBodyBytes > 0 && c.Request.ContentLength > s.cfg.MaxBodyBytes {
+		limit := s.cfg.MaxBodyBytes
+		timeout := s.cfg.RequestTimeout
+		if isKnowledgeUpload(path) {
+			if s.cfg.UploadMaxBodyBytes > limit {
+				limit = s.cfg.UploadMaxBodyBytes
+			}
+			if s.cfg.UploadTimeout > timeout {
+				timeout = s.cfg.UploadTimeout
+			}
+		}
+		if limit > 0 && c.Request.ContentLength > limit {
 			response.Fail(c, http.StatusRequestEntityTooLarge, response.CodePayloadTooLarge, "请求体过大", nil)
 			s.record(c, start, false)
 			return
 		}
-		if s.cfg.MaxBodyBytes > 0 && c.Request.Body != nil {
-			c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, s.cfg.MaxBodyBytes)
+		if limit > 0 && c.Request.Body != nil {
+			c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, limit)
 		}
 		timedOut := false
-		if s.cfg.RequestTimeout > 0 {
-			ctx, cancel := context.WithTimeout(c.Request.Context(), s.cfg.RequestTimeout)
+		if timeout > 0 {
+			ctx, cancel := context.WithTimeout(c.Request.Context(), timeout)
 			defer cancel()
 			c.Request = c.Request.WithContext(ctx)
 			c.Next()
@@ -237,4 +247,8 @@ func ping(ctx context.Context, log *slog.Logger, name string, pinger Pinger) str
 
 func exempt(path string) bool {
 	return strings.HasPrefix(path, "/api/v1/health/") || path == "/api/v1/openapi.json"
+}
+
+func isKnowledgeUpload(path string) bool {
+	return strings.Contains(path, "/api/v1/knowledge-bases/") && strings.Contains(path, "/files")
 }

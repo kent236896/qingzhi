@@ -223,6 +223,36 @@ func (s *Service) ListOrganizationsWithAccess(ctx context.Context, tenantID stri
 	return buildTree(FilterOrganizations(orgs, access)), nil
 }
 
+func (s *Service) ListOrganizationRecords(ctx context.Context, tenantID string) ([]Organization, error) {
+	return s.store.ListOrganizations(ctx, tenantID)
+}
+
+func (s *Service) FindOrganizationByID(ctx context.Context, id string) (Organization, error) {
+	return s.store.FindOrganizationByID(ctx, id)
+}
+
+func (s *Service) ListAssignmentRecords(ctx context.Context, tenantID, userID string) ([]OrganizationMembership, error) {
+	return s.store.ListAssignments(ctx, tenantID, userID)
+}
+
+func (s *Service) ListUserRoleIDs(ctx context.Context, tenantID, userID string) ([]string, error) {
+	return s.store.ListUserRoleIDs(ctx, tenantID, userID)
+}
+
+func (s *Service) ListMembershipTenantIDs(ctx context.Context, userID string) ([]string, error) {
+	items, err := s.store.ListMembershipsByUser(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	ids := make([]string, 0, len(items))
+	for _, item := range items {
+		if item.Status == StatusNormal {
+			ids = append(ids, item.TenantID)
+		}
+	}
+	return ids, nil
+}
+
 func (s *Service) CreateOrganization(ctx context.Context, tenantID string, input CreateOrganizationInput) (Organization, error) {
 	org := Organization{
 		TenantID:     tenantID,
@@ -430,6 +460,89 @@ type UpdatePostInput struct {
 	Sort   *int
 	Status *int
 	Remark *string
+}
+
+func (s *Service) ListUserPosts(ctx context.Context, tenantID, userID string) ([]Post, error) {
+	var posts []Post
+	err := s.store.Transaction(ctx, func(tx Store) error {
+		if _, err := tx.FindMembership(ctx, tenantID, userID); errors.Is(err, ErrNotFound) {
+			return notFound("成员不存在")
+		} else if err != nil {
+			return err
+		}
+		ids, err := tx.ListUserPostIDs(ctx, tenantID, userID)
+		if err != nil {
+			return err
+		}
+		posts = make([]Post, 0, len(ids))
+		for _, id := range ids {
+			post, err := tx.FindPost(ctx, tenantID, id)
+			if errors.Is(err, ErrNotFound) {
+				continue
+			}
+			if err != nil {
+				return err
+			}
+			posts = append(posts, post)
+		}
+		return nil
+	})
+	if posts == nil {
+		posts = []Post{}
+	}
+	return posts, err
+}
+
+func (s *Service) ReplaceUserPosts(ctx context.Context, tenantID, userID string, postIDs []string) ([]Post, error) {
+	unique := make([]string, 0, len(postIDs))
+	seen := map[string]struct{}{}
+	for _, id := range postIDs {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		unique = append(unique, id)
+	}
+	var posts []Post
+	err := s.store.Transaction(ctx, func(tx Store) error {
+		if _, err := tx.FindMembership(ctx, tenantID, userID); errors.Is(err, ErrNotFound) {
+			return notFound("成员不存在")
+		} else if err != nil {
+			return err
+		}
+		for _, id := range unique {
+			post, err := tx.FindPost(ctx, tenantID, id)
+			if errors.Is(err, ErrNotFound) {
+				return invalid("岗位不存在")
+			}
+			if err != nil {
+				return err
+			}
+			if post.Status != StatusNormal {
+				return invalid("不能任职已停用的岗位")
+			}
+		}
+		if err := tx.ReplaceUserPosts(ctx, tenantID, userID, unique); err != nil {
+			return err
+		}
+		posts = make([]Post, 0, len(unique))
+		for _, id := range unique {
+			post, err := tx.FindPost(ctx, tenantID, id)
+			if err != nil {
+				return err
+			}
+			posts = append(posts, post)
+		}
+		return nil
+	})
+	if posts == nil {
+		posts = []Post{}
+	}
+	return posts, err
 }
 
 func (s *Service) ListPosts(ctx context.Context, tenantID string, query ListQuery) (Page[Post], error) {
@@ -1589,6 +1702,9 @@ func (s *Service) RemoveMember(ctx context.Context, tenantID, userID string) err
 			return err
 		}
 		if err := tx.ClearUserRoles(ctx, tenantID, userID); err != nil {
+			return err
+		}
+		if err := tx.ClearUserPosts(ctx, tenantID, userID); err != nil {
 			return err
 		}
 		return tx.DeleteMembership(ctx, tenantID, userID)

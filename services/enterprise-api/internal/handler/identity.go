@@ -97,6 +97,8 @@ func (h Identity) Register(group *gin.RouterGroup, enforce bool) {
 	group.POST("/tenants/:tenantId/members", tenant(perm("system:user:create"), h.createMember)...)
 	group.PUT("/tenants/:tenantId/members/:userId", tenant(perm("system:user:update"), h.replaceMember)...)
 	group.DELETE("/tenants/:tenantId/members/:userId", tenant(perm("system:user:delete"), h.removeMember)...)
+	group.GET("/tenants/:tenantId/members/:userId/posts", tenant(perm("system:user:query"), h.listUserPosts)...)
+	group.PUT("/tenants/:tenantId/members/:userId/posts", tenant(perm("system:user:update"), h.replaceUserPosts)...)
 }
 
 func (h Identity) principalAccess(c *gin.Context) identity.DataAccess {
@@ -907,6 +909,32 @@ func dataScopeText(scope int) string {
 	default:
 		return "未知"
 	}
+}
+
+func (h Identity) listUserPosts(c *gin.Context) {
+	tenantID, ok := pathID(c, "tenantId")
+	userID, userOK := pathID(c, "userId")
+	if !ok || !userOK || !h.available(c) {
+		return
+	}
+	items, err := h.Service.ListUserPosts(c.Request.Context(), tenantID, userID)
+	h.write(c, items, err)
+}
+
+func (h Identity) replaceUserPosts(c *gin.Context) {
+	tenantID, ok := pathID(c, "tenantId")
+	userID, userOK := pathID(c, "userId")
+	if !ok || !userOK || !h.available(c) {
+		return
+	}
+	var body struct {
+		PostIDs []string `json:"post_ids"`
+	}
+	if !response.BindJSON(c, &body) {
+		return
+	}
+	items, err := h.Service.ReplaceUserPosts(c.Request.Context(), tenantID, userID, body.PostIDs)
+	h.write(c, items, err)
 }
 
 func pathID(c *gin.Context, name string) (string, bool) {

@@ -154,6 +154,19 @@ type UserRole struct {
 	Deleted    bool
 }
 
+// UserPost assigns one account to one post inside a tenant.
+type UserPost struct {
+	ID         string
+	TenantID   string
+	UserID     string
+	PostID     string
+	Creator    string
+	CreateTime time.Time
+	Updater    string
+	UpdateTime time.Time
+	Deleted    bool
+}
+
 // RoleUserView is one account assigned to a role.
 type RoleUserView struct {
 	UserID   string `json:"user_id"`

@@ -17,6 +17,7 @@ import (
 	"qingzhi/enterprise-api/internal/dict"
 	"qingzhi/enterprise-api/internal/handler"
 	"qingzhi/enterprise-api/internal/identity"
+	"qingzhi/enterprise-api/internal/knowledge"
 	"qingzhi/enterprise-api/internal/middleware"
 	"qingzhi/enterprise-api/internal/monitor"
 	"qingzhi/enterprise-api/internal/response"
@@ -25,15 +26,16 @@ import (
 
 // Dependencies are the runtime collaborators of the HTTP server.
 type Dependencies struct {
-	Config   config.Config
-	Logger   *slog.Logger
-	Database handler.Pinger
-	Redis    handler.Pinger
-	Identity *identity.Service
-	Dict     *dict.Service
-	Security *security.Service
-	Monitor  *monitor.Service
-	Tokens   *auth.TokenIssuer
+	Config    config.Config
+	Logger    *slog.Logger
+	Database  handler.Pinger
+	Redis     handler.Pinger
+	Identity  *identity.Service
+	Knowledge *knowledge.Service
+	Dict      *dict.Service
+	Security  *security.Service
+	Monitor   *monitor.Service
+	Tokens    *auth.TokenIssuer
 }
 
 // Server is the HTTP API process.
@@ -110,6 +112,12 @@ func New(deps Dependencies) *Server {
 	handler.Monitor{
 		Logger:  deps.Logger,
 		Service: deps.Monitor,
+	}.Register(protected, enforce)
+	handler.Knowledge{
+		Logger:   deps.Logger,
+		Database: deps.Database,
+		Service:  deps.Knowledge,
+		Identity: deps.Identity,
 	}.Register(protected, enforce)
 
 	engine.NoRoute(func(c *gin.Context) {

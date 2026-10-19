@@ -36,6 +36,9 @@ type Store interface {
 	DeletePost(ctx context.Context, id string) error
 	FindPost(ctx context.Context, tenantID, id string) (Post, error)
 	ListPosts(ctx context.Context, tenantID, keyword string, page, pageSize int) ([]Post, int64, error)
+	ListUserPostIDs(ctx context.Context, tenantID, userID string) ([]string, error)
+	ReplaceUserPosts(ctx context.Context, tenantID, userID string, postIDs []string) error
+	ClearUserPosts(ctx context.Context, tenantID, userID string) error
 
 	InsertMenu(ctx context.Context, menu Menu) error
 	UpdateMenu(ctx context.Context, menu Menu) error

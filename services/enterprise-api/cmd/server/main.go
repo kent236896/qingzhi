@@ -12,12 +12,14 @@ import (
 	"qingzhi/enterprise-api/internal/config"
 	"qingzhi/enterprise-api/internal/dict"
 	"qingzhi/enterprise-api/internal/identity"
+	"qingzhi/enterprise-api/internal/knowledge"
 	"qingzhi/enterprise-api/internal/monitor"
 	"qingzhi/enterprise-api/internal/platform/database"
 	"qingzhi/enterprise-api/internal/platform/logger"
 	"qingzhi/enterprise-api/internal/platform/redis"
 	"qingzhi/enterprise-api/internal/security"
 	"qingzhi/enterprise-api/internal/server"
+	"qingzhi/enterprise-api/internal/weknora"
 )
 
 func main() {
@@ -50,6 +52,7 @@ func run() int {
 
 	var databasePinger interface{ Ping(context.Context) error }
 	var identityService *identity.Service
+	var knowledgeService *knowledge.Service
 	var dictService *dict.Service
 	var securityService *security.Service
 	var alertStore monitor.AlertStore
@@ -62,6 +65,20 @@ func run() int {
 	} else {
 		databasePinger = db
 		identityService = identity.NewService(identity.NewGormStore(db.GORM()))
+		var remote weknora.Client
+		if cfg.WeKnora.Enabled() {
+			remote = weknora.NewHTTPClient(cfg.WeKnora.BaseURL, cfg.WeKnora.APIKey, cfg.WeKnora.Timeout)
+			info, infoErr := remote.GetSystemInfo(context.Background())
+			if infoErr != nil {
+				log.Warn("weknora is not reachable", slog.String("component", "app"), slog.String("error", infoErr.Error()))
+			} else {
+				log.Info("weknora is reachable", slog.String("component", "app"), slog.String("version", info.Version), slog.String("edition", info.Edition))
+			}
+			if caps, capsErr := remote.GetDeploymentCapabilities(context.Background()); capsErr == nil {
+				log.Info("weknora capabilities loaded", slog.String("component", "app"), slog.String("edition", caps.Edition), slog.Int("count", len(caps.Capabilities)))
+			}
+		}
+		knowledgeService = knowledge.NewService(knowledge.NewGormStore(db.GORM()), identityService, remote, cfg.Knowledge, cfg.WeKnora, log)
 		dictService = dict.NewService(dict.NewGormStore(db.GORM()))
 		securityService = security.NewService(security.NewGormStore(db.GORM()))
 		alertStore = monitor.NewGormStore(db.GORM())
@@ -87,15 +104,16 @@ func run() int {
 	go monitorService.Run(monitorCtx)
 
 	srv := server.New(server.Dependencies{
-		Config:   cfg,
-		Logger:   log,
-		Database: databasePinger,
-		Redis:    redisClient,
-		Identity: identityService,
-		Dict:     dictService,
-		Security: securityService,
-		Monitor:  monitorService,
-		Tokens:   tokens,
+		Config:    cfg,
+		Logger:    log,
+		Database:  databasePinger,
+		Redis:     redisClient,
+		Identity:  identityService,
+		Knowledge: knowledgeService,
+		Dict:      dictService,
+		Security:  securityService,
+		Monitor:   monitorService,
+		Tokens:    tokens,
 	})
 	if err := srv.Run(); err != nil {
 		log.Error("server stopped", slog.String("component", "app"), slog.String("error", err.Error()))

@@ -16,7 +16,7 @@
 
 Docker、GNU Make、本机 PostgreSQL 和 Redis 不是编译前端或后端单元测试的前提。启动数据库和 Redis 需要 Docker。
 
-不要为了这个仓库升级全局 Node.js、pnpm 或 Go。后端保持 Go 1.21。前端 TypeScript 锁定在 5.9，因为当前的 `vue-tsc` 和 `typescript-eslint` 不能使用 TypeScript 7。
+不要为了这个仓库升级全局 Node.js 或 pnpm。后端模块要求 Go 1.26；本机可以保留旧版 Go，工具链会按 `go.mod` 下载 1.26。前端 TypeScript 锁定在 5.9，因为当前的 `vue-tsc` 和 `typescript-eslint` 不能使用 TypeScript 7。
 
 ## 技术版本
 
@@ -47,7 +47,7 @@ Docker、GNU Make、本机 PostgreSQL 和 Redis 不是编译前端或后端单�
 | go-redis | 9.7.0 |
 | golang-migrate | 4.17.1 |
 | validator | 10.20.0 |
-| 结构化日志 | Go 1.21 `log/slog` |
+| 结构化日志 | Go `log/slog` |
 
 开发环境镜像：`postgres:16-alpine`、`redis:7-alpine`、`nginx:1.27-alpine`。
 
@@ -133,3 +133,5 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\check-infra.ps1
 - [API 约定](docs/api-conventions.md)
 - [开发](docs/development.md)
 - [测试](docs/testing.md)
+
+知识管理是独立菜单。它把文档交给本机配置的 WeKnora，并在启用 Wiki 时展示图谱。上传限制来自服务端配置。

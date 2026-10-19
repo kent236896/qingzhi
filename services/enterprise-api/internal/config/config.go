@@ -17,21 +17,23 @@ const (
 
 // Config is the validated runtime configuration.
 type Config struct {
-	AppName  string
-	AppEnv   string
-	LogLevel string
-	HTTP     HTTPConfig
-	Postgres PostgresConfig
-	Redis    RedisConfig
-	CORS     CORSConfig
-	Auth     AuthConfig
-	Monitor  MonitorConfig
+	AppName   string
+	AppEnv    string
+	LogLevel  string
+	HTTP      HTTPConfig
+	Postgres  PostgresConfig
+	Redis     RedisConfig
+	CORS      CORSConfig
+	Auth      AuthConfig
+	Monitor   MonitorConfig
+	WeKnora   WeKnoraConfig
+	Knowledge KnowledgeConfig
 }
 
 // AuthConfig holds JWT signing settings. Tokens are self-contained; Redis is not used for sessions.
 type AuthConfig struct {
-	JWTSecret   string
-	TokenTTL    time.Duration
+	JWTSecret string
+	TokenTTL  time.Duration
 }
 
 // HTTPConfig controls the public HTTP server.
@@ -96,17 +98,54 @@ type CORSConfig struct {
 // MonitorConfig controls in-process metrics, alerts, and request protection.
 // Rate limiting applies inside this process only.
 type MonitorConfig struct {
-	Window         time.Duration
-	ErrorCount     int
-	TimeoutCount   int
-	P95            time.Duration
-	CPUPercent     int
-	MemoryPercent  int
-	DiskPercent    int
-	RequestTimeout time.Duration
-	MaxBodyBytes   int64
-	RateLimitRPS   int
-	RateLimitBurst int
+	Window             time.Duration
+	ErrorCount         int
+	TimeoutCount       int
+	P95                time.Duration
+	CPUPercent         int
+	MemoryPercent      int
+	DiskPercent        int
+	RequestTimeout     time.Duration
+	MaxBodyBytes       int64
+	RateLimitRPS       int
+	RateLimitBurst     int
+	UploadMaxBodyBytes int64
+	UploadTimeout      time.Duration
+}
+
+// WeKnoraConfig connects this API to a self-hosted WeKnora service.
+// BaseURL is host and port only. The API key never leaves the server.
+type WeKnoraConfig struct {
+	BaseURL              string
+	APIKey               string
+	Timeout              time.Duration
+	EmbeddingModelID     string
+	SummaryModelID       string
+	WikiSynthesisModelID string
+}
+
+// Secrets returns values that must be redacted.
+func (w WeKnoraConfig) Secrets() []string {
+	if w.APIKey == "" {
+		return nil
+	}
+	return []string{w.APIKey}
+}
+
+// Enabled reports whether a remote knowledge service is configured.
+func (w WeKnoraConfig) Enabled() bool {
+	return w.BaseURL != "" && w.APIKey != ""
+}
+
+// KnowledgeConfig controls local knowledge-base uploads and wiki polling.
+type KnowledgeConfig struct {
+	MaxFileMB         int
+	MaxFiles          int
+	ZipMaxTotalMB     int
+	ZipMaxEntries     int
+	UploadConcurrency int
+	AllowedExts       []string
+	WikiStatusTimeout time.Duration
 }
 
 // Load reads environment variables and validates them.
@@ -233,6 +272,42 @@ func Load() (Config, error) {
 	if cfg.Monitor.RateLimitBurst, err = parseNonNegativeInt("HTTP_RATE_LIMIT_BURST", env.getenv("HTTP_RATE_LIMIT_BURST", ""), "100"); err != nil {
 		return Config{}, err
 	}
+	cfg.WeKnora.BaseURL = strings.TrimRight(strings.TrimSpace(env.getenv("WEKNORA_BASE_URL", "")), "/")
+	cfg.WeKnora.APIKey = strings.TrimSpace(env.getenv("WEKNORA_API_KEY", ""))
+	if cfg.WeKnora.Timeout, err = parseSecondsOrDuration("WEKNORA_TIMEOUT", env.getenv("WEKNORA_TIMEOUT", ""), 30); err != nil {
+		return Config{}, err
+	}
+	cfg.WeKnora.EmbeddingModelID = strings.TrimSpace(env.getenv("WEKNORA_EMBEDDING_MODEL_ID", ""))
+	cfg.WeKnora.SummaryModelID = strings.TrimSpace(env.getenv("WEKNORA_SUMMARY_MODEL_ID", ""))
+	cfg.WeKnora.WikiSynthesisModelID = strings.TrimSpace(env.getenv("WEKNORA_WIKI_SYNTHESIS_MODEL_ID", ""))
+	if cfg.Knowledge.MaxFileMB, err = parsePositiveInt("KB_UPLOAD_MAX_FILE_MB", env.getenv("KB_UPLOAD_MAX_FILE_MB", ""), "20"); err != nil {
+		return Config{}, err
+	}
+	if cfg.Knowledge.MaxFiles, err = parsePositiveInt("KB_UPLOAD_MAX_FILES", env.getenv("KB_UPLOAD_MAX_FILES", ""), "20"); err != nil {
+		return Config{}, err
+	}
+	if cfg.Knowledge.ZipMaxTotalMB, err = parsePositiveInt("KB_ZIP_MAX_TOTAL_MB", env.getenv("KB_ZIP_MAX_TOTAL_MB", ""), "100"); err != nil {
+		return Config{}, err
+	}
+	if cfg.Knowledge.ZipMaxEntries, err = parsePositiveInt("KB_ZIP_MAX_ENTRIES", env.getenv("KB_ZIP_MAX_ENTRIES", ""), "200"); err != nil {
+		return Config{}, err
+	}
+	if cfg.Knowledge.UploadConcurrency, err = parsePositiveInt("KB_UPLOAD_CONCURRENCY", env.getenv("KB_UPLOAD_CONCURRENCY", ""), "3"); err != nil {
+		return Config{}, err
+	}
+	cfg.Knowledge.AllowedExts = parseExts(env.getenv("KB_ALLOWED_EXTS", ""))
+	if cfg.Knowledge.WikiStatusTimeout, err = parseMinutesOrDuration("KB_WIKI_STATUS_TIMEOUT_MIN", env.getenv("KB_WIKI_STATUS_TIMEOUT_MIN", ""), 30); err != nil {
+		return Config{}, err
+	}
+	cfg.Monitor.UploadMaxBodyBytes = int64(cfg.Knowledge.ZipMaxTotalMB) << 20
+	fileBytes := int64(cfg.Knowledge.MaxFileMB) * int64(cfg.Knowledge.MaxFiles) << 20
+	if fileBytes > cfg.Monitor.UploadMaxBodyBytes {
+		cfg.Monitor.UploadMaxBodyBytes = fileBytes
+	}
+	cfg.Monitor.UploadTimeout = 2 * time.Minute
+	if cfg.Monitor.UploadTimeout > cfg.HTTP.WriteTimeout {
+		cfg.Monitor.UploadTimeout = cfg.HTTP.WriteTimeout
+	}
 	if err := cfg.validate(); err != nil {
 		return Config{}, err
 	}
@@ -284,8 +359,14 @@ func (cfg Config) validate() error {
 	if cfg.Monitor.RequestTimeout > cfg.HTTP.WriteTimeout {
 		return fmt.Errorf("HTTP_REQUEST_TIMEOUT cannot exceed HTTP_WRITE_TIMEOUT")
 	}
-	if cfg.Monitor.MaxBodyBytes < 1024 || cfg.Monitor.MaxBodyBytes > 32<<20 {
-		return fmt.Errorf("HTTP_MAX_BODY_BYTES must be between 1024 and 33554432")
+	if cfg.Monitor.MaxBodyBytes < 1024 || cfg.Monitor.MaxBodyBytes > 256<<20 {
+		return fmt.Errorf("HTTP_MAX_BODY_BYTES must be between 1024 and 268435456")
+	}
+	if cfg.Knowledge.MaxFileMB > 256 || cfg.Knowledge.ZipMaxTotalMB > 512 || cfg.Knowledge.MaxFiles > 200 || cfg.Knowledge.ZipMaxEntries > 5000 || cfg.Knowledge.UploadConcurrency > 8 {
+		return fmt.Errorf("knowledge upload limits are too large")
+	}
+	if strings.HasSuffix(cfg.WeKnora.BaseURL, "/api/v1") {
+		return fmt.Errorf("WEKNORA_BASE_URL must be host:port without /api/v1")
 	}
 	if cfg.Monitor.RateLimitRPS > 10000 {
 		return fmt.Errorf("HTTP_RATE_LIMIT_RPS must be at most 10000")
@@ -372,6 +453,49 @@ func parseNonNegativeInt(key, value, fallback string) (int, error) {
 		return 0, fmt.Errorf("%s must be a non-negative integer", key)
 	}
 	return number, nil
+}
+
+func parseSecondsOrDuration(key, value string, fallbackSeconds int) (time.Duration, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return time.Duration(fallbackSeconds) * time.Second, nil
+	}
+	if number, err := strconv.Atoi(value); err == nil {
+		if number <= 0 {
+			return 0, fmt.Errorf("%s must be a positive number of seconds", key)
+		}
+		return time.Duration(number) * time.Second, nil
+	}
+	return parseDuration(key, value, "")
+}
+
+func parseMinutesOrDuration(key, value string, fallbackMinutes int) (time.Duration, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return time.Duration(fallbackMinutes) * time.Minute, nil
+	}
+	if number, err := strconv.Atoi(value); err == nil {
+		if number <= 0 {
+			return 0, fmt.Errorf("%s must be a positive number of minutes", key)
+		}
+		return time.Duration(number) * time.Minute, nil
+	}
+	return parseDuration(key, value, "")
+}
+
+func parseExts(value string) []string {
+	if strings.TrimSpace(value) == "" {
+		value = ".pdf,.doc,.docx,.txt,.md,.markdown,.csv,.xls,.xlsx,.ppt,.pptx,.html,.htm"
+	}
+	parts := splitCSV(strings.ToLower(value))
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if !strings.HasPrefix(part, ".") {
+			part = "." + part
+		}
+		out = append(out, part)
+	}
+	return out
 }
 
 func parseDuration(key, value, fallback string) (time.Duration, error) {

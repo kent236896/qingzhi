@@ -3,7 +3,7 @@
   "info": {
     "title": "擎知企业后台 API",
     "version": "0.1.0",
-    "description": "包含健康检查、登录鉴权、账号、租户、部门、角色、字典、审计日志、安全策略、系统监控与组织成员管理接口。除健康检查、OpenAPI 与登录外，管理接口需要 Bearer JWT，并按角色菜单权限与数据范围过滤。响应不包含密码。普通 JSON API 使用统一信封：code、message、data、request_id。本文件本身是 OpenAPI 文档，不使用该信封。日期时间约定为 UTC 的 RFC3339。"
+    "description": "包含健康检查、登录鉴权、账号、租户、部门、角色、岗位任职、字典、审计日志、安全策略、系统监控、组织成员与知识库管理接口。除健康检查、OpenAPI 与登录外，管理接口需要 Bearer JWT，并按角色菜单权限与数据范围过滤。响应不包含密码。普通 JSON API 使用统一信封：code、message、data、request_id。本文件本身是 OpenAPI 文档，不使用该信封。日期时间约定为 UTC 的 RFC3339。"
   },
   "servers": [
     {
@@ -24,9 +24,60 @@
     { "name": "monitor", "description": "服务健康、请求指标、系统资源与告警" },
     { "name": "roles", "description": "租户角色" },
     { "name": "users", "description": "全局账号" },
-    { "name": "members", "description": "租户成员与部门任职" }
+    { "name": "members", "description": "租户成员与部门任职" },
+    { "name": "knowledge", "description": "知识库、文件与 Wiki" }
   ],
   "paths": {
+    "/api/v1/knowledge-bases": {
+      "get": { "tags": ["knowledge"], "summary": "可见知识库", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "分页列表" } } },
+      "post": { "tags": ["knowledge"], "summary": "创建知识库", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "已创建" } } }
+    },
+    "/api/v1/knowledge-bases/limits": {
+      "get": { "tags": ["knowledge"], "summary": "上传限制", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "配置中的大小和扩展名" } } }
+    },
+    "/api/v1/knowledge-bases/options": {
+      "get": { "tags": ["knowledge"], "summary": "创建表单选项", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "租户、组织、岗位、角色和用户" } } }
+    },
+    "/api/v1/knowledge-bases/{id}": {
+      "get": { "tags": ["knowledge"], "summary": "知识库详情", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "知识库" } } },
+      "patch": { "tags": ["knowledge"], "summary": "更新知识库", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "已更新" } } },
+      "delete": { "tags": ["knowledge"], "summary": "删除知识库", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "已删除" } } }
+    },
+    "/api/v1/knowledge-bases/{id}/files": {
+      "get": { "tags": ["knowledge"], "summary": "文件列表", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "文件" } } },
+      "post": { "tags": ["knowledge"], "summary": "上传文件", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "逐文件结果" } } }
+    },
+    "/api/v1/knowledge-bases/{id}/files/zip": {
+      "post": { "tags": ["knowledge"], "summary": "上传 ZIP", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "解压后的逐文件结果" } } }
+    },
+    "/api/v1/knowledge-bases/{id}/files/sync": {
+      "post": { "tags": ["knowledge"], "summary": "同步解析状态", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "已同步" } } }
+    },
+    "/api/v1/knowledge-bases/{id}/files/delete": {
+      "post": { "tags": ["knowledge"], "summary": "删除文件", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "已删除" } } }
+    },
+    "/api/v1/knowledge-bases/{id}/files/reparse": {
+      "post": { "tags": ["knowledge"], "summary": "重新解析", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "已提交" } } }
+    },
+    "/api/v1/knowledge-bases/{id}/wiki/status": {
+      "get": { "tags": ["knowledge"], "summary": "Wiki 状态", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "状态" } } }
+    },
+    "/api/v1/knowledge-bases/{id}/wiki/graph": {
+      "get": { "tags": ["knowledge"], "summary": "Wiki 图谱", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "节点和边" } } }
+    },
+    "/api/v1/knowledge-bases/{id}/wiki/pages": {
+      "get": { "tags": ["knowledge"], "summary": "Wiki 页面列表", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "页面" } } }
+    },
+    "/api/v1/knowledge-bases/{id}/wiki/pages/*slug": {
+      "get": { "tags": ["knowledge"], "summary": "Wiki 页面", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "页面内容" } } }
+    },
+    "/api/v1/knowledge-bases/{id}/wiki/search": {
+      "get": { "tags": ["knowledge"], "summary": "搜索 Wiki", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "匹配页面" } } }
+    },
+    "/api/v1/tenants/{tenantId}/members/{userId}/posts": {
+      "get": { "tags": ["members"], "summary": "用户岗位任职", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "岗位" } } },
+      "put": { "tags": ["members"], "summary": "替换用户岗位任职", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "已保存" } } }
+    },
     "/api/v1/auth/login": {
       "post": {
         "tags": ["auth"],

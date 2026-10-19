@@ -205,6 +205,14 @@ export interface Post {
   deleted: boolean
 }
 
+export function listUserPosts(tenantId: string, userId: string) {
+  return http.get<Post[]>(`/api/v1/tenants/${tenantId}/members/${userId}/posts`)
+}
+
+export function replaceUserPosts(tenantId: string, userId: string, postIds: string[]) {
+  return http.put<Post[]>(`/api/v1/tenants/${tenantId}/members/${userId}/posts`, { post_ids: postIds })
+}
+
 export function listPosts(tenantId: string, params: ListParams = {}) {
   return http.get<PageResult<Post>>(`/api/v1/tenants/${tenantId}/posts`, query(params))
 }

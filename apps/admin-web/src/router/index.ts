@@ -6,6 +6,8 @@ import OperateLogsView from '@/views/OperateLogsView.vue'
 import PermissionLogsView from '@/views/PermissionLogsView.vue'
 import SecurityPolicyView from '@/views/SecurityPolicyView.vue'
 import HomeView from '@/views/HomeView.vue'
+import KnowledgeDetailView from '@/views/KnowledgeDetailView.vue'
+import KnowledgeView from '@/views/KnowledgeView.vue'
 import LoginView from '@/views/LoginView.vue'
 import MonitorView from '@/views/MonitorView.vue'
 import NotFoundView from '@/views/NotFoundView.vue'
@@ -72,6 +74,18 @@ export const router = createRouter({
           name: 'users',
           component: UsersView,
           meta: { title: '用户管理', breadcrumb: ['系统管理', '用户管理'] },
+        },
+        {
+          path: 'knowledge',
+          name: 'knowledge',
+          component: KnowledgeView,
+          meta: { title: '知识管理', breadcrumb: ['知识管理'] },
+        },
+        {
+          path: 'knowledge/:id',
+          name: 'knowledge-detail',
+          component: KnowledgeDetailView,
+          meta: { title: '知识库', breadcrumb: ['知识管理', '知识库'] },
         },
         {
           path: 'dicts',

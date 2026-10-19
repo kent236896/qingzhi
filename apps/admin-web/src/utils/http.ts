@@ -77,6 +77,9 @@ export function createHttpClient(options: HttpClientOptions) {
     if (!headers.get(REQUEST_ID_HEADER)) {
       headers.set(REQUEST_ID_HEADER, (options.generateRequestId ?? createRequestId)())
     }
+    if (config.data instanceof FormData) {
+      headers.delete('Content-Type')
+    }
     const token = options.getAccessToken?.()
     if (token && !headers.get('Authorization')) {
       headers.set('Authorization', `Bearer ${token}`)

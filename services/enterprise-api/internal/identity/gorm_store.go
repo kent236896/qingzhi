@@ -276,6 +276,44 @@ func (s *GormStore) ListPosts(ctx context.Context, tenantID, keyword string, pag
 	return postsFrom(rows), total, err
 }
 
+func (s *GormStore) ListUserPostIDs(ctx context.Context, tenantID, userID string) ([]string, error) {
+	var ids []string
+	err := s.db.WithContext(ctx).Model(&userPostRow{}).
+		Where("tenant_id = ? AND user_id = ? AND deleted = ?", tenantID, userID, false).
+		Order("create_time ASC").
+		Pluck("post_id", &ids).Error
+	if ids == nil {
+		ids = []string{}
+	}
+	return ids, err
+}
+
+func (s *GormStore) ReplaceUserPosts(ctx context.Context, tenantID, userID string, postIDs []string) error {
+	now := time.Now().UTC()
+	if err := s.db.WithContext(ctx).Model(&userPostRow{}).
+		Where("tenant_id = ? AND user_id = ? AND deleted = ?", tenantID, userID, false).
+		Updates(map[string]any{"deleted": true, "update_time": now}).Error; err != nil {
+		return mapWrite(err)
+	}
+	for _, postID := range postIDs {
+		row := userPostRow{
+			ID: newID(), TenantID: tenantID, UserID: userID, PostID: postID,
+			CreateTime: now, UpdateTime: now,
+		}
+		if err := mapWrite(s.db.WithContext(ctx).Create(&row).Error); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *GormStore) ClearUserPosts(ctx context.Context, tenantID, userID string) error {
+	now := time.Now().UTC()
+	return mapWrite(s.db.WithContext(ctx).Model(&userPostRow{}).
+		Where("tenant_id = ? AND user_id = ? AND deleted = ?", tenantID, userID, false).
+		Updates(map[string]any{"deleted": true, "update_time": now}).Error)
+}
+
 func (s *GormStore) InsertMembership(ctx context.Context, membership TenantMembership) error {
 	return mapWrite(s.db.WithContext(ctx).Create(membershipRowFrom(membership)).Error)
 }
@@ -956,6 +994,20 @@ type userRoleRow struct {
 }
 
 func (userRoleRow) TableName() string { return "sys_user_roles" }
+
+type userPostRow struct {
+	ID         string    `gorm:"type:uuid;primaryKey"`
+	TenantID   string    `gorm:"column:tenant_id"`
+	UserID     string    `gorm:"column:user_id"`
+	PostID     string    `gorm:"column:post_id"`
+	Creator    string    `gorm:"column:creator"`
+	CreateTime time.Time `gorm:"column:create_time"`
+	Updater    string    `gorm:"column:updater"`
+	UpdateTime time.Time `gorm:"column:update_time"`
+	Deleted    bool      `gorm:"column:deleted"`
+}
+
+func (userPostRow) TableName() string { return "sys_user_posts" }
 
 type roleUserJoinRow struct {
 	UserID   string

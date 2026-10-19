@@ -17,6 +17,7 @@ type memoryStore struct {
 	roleMenus   map[string]RoleMenu
 	roleDepts   map[string]RoleDept
 	userRoles   map[string]UserRole
+	userPosts   map[string]UserPost
 	members     map[string]TenantMembership
 	assignments map[string]OrganizationMembership
 }
@@ -32,6 +33,7 @@ func newMemoryStore() *memoryStore {
 		roleMenus:   map[string]RoleMenu{},
 		roleDepts:   map[string]RoleDept{},
 		userRoles:   map[string]UserRole{},
+		userPosts:   map[string]UserPost{},
 		members:     map[string]TenantMembership{},
 		assignments: map[string]OrganizationMembership{},
 	}
@@ -50,7 +52,7 @@ func (s *memoryStore) clone() *memoryStore {
 	return &memoryStore{
 		users: cloneMap(s.users), tenants: cloneMap(s.tenants), orgs: cloneMap(s.orgs), posts: cloneMap(s.posts), menus: cloneMap(s.menus),
 		roles: cloneMap(s.roles), roleMenus: cloneMap(s.roleMenus), roleDepts: cloneMap(s.roleDepts), userRoles: cloneMap(s.userRoles),
-		members: cloneMap(s.members), assignments: cloneMap(s.assignments),
+		userPosts: cloneMap(s.userPosts), members: cloneMap(s.members), assignments: cloneMap(s.assignments),
 	}
 }
 
@@ -659,6 +661,41 @@ func (s *memoryStore) CountRoleUsers(_ context.Context, roleID string) (int64, e
 		}
 	}
 	return count, nil
+}
+
+func (s *memoryStore) ListUserPostIDs(_ context.Context, tenantID, userID string) ([]string, error) {
+	ids := make([]string, 0)
+	for _, item := range s.userPosts {
+		if !item.Deleted && item.TenantID == tenantID && item.UserID == userID {
+			ids = append(ids, item.PostID)
+		}
+	}
+	sort.Strings(ids)
+	return ids, nil
+}
+
+func (s *memoryStore) ReplaceUserPosts(_ context.Context, tenantID, userID string, postIDs []string) error {
+	for id, item := range s.userPosts {
+		if item.TenantID == tenantID && item.UserID == userID && !item.Deleted {
+			item.Deleted = true
+			s.userPosts[id] = item
+		}
+	}
+	for _, postID := range postIDs {
+		id := newID()
+		s.userPosts[id] = UserPost{ID: id, TenantID: tenantID, UserID: userID, PostID: postID}
+	}
+	return nil
+}
+
+func (s *memoryStore) ClearUserPosts(_ context.Context, tenantID, userID string) error {
+	for id, item := range s.userPosts {
+		if item.TenantID == tenantID && item.UserID == userID && !item.Deleted {
+			item.Deleted = true
+			s.userPosts[id] = item
+		}
+	}
+	return nil
 }
 
 func (s *memoryStore) InsertMembership(_ context.Context, membership TenantMembership) error {
