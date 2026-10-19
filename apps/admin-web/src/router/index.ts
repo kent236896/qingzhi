@@ -8,6 +8,7 @@ import SecurityPolicyView from '@/views/SecurityPolicyView.vue'
 import HomeView from '@/views/HomeView.vue'
 import KnowledgeDetailView from '@/views/KnowledgeDetailView.vue'
 import KnowledgeView from '@/views/KnowledgeView.vue'
+import ModelsView from '@/views/ModelsView.vue'
 import LoginView from '@/views/LoginView.vue'
 import MonitorView from '@/views/MonitorView.vue'
 import NotFoundView from '@/views/NotFoundView.vue'
@@ -80,6 +81,12 @@ export const router = createRouter({
           name: 'knowledge',
           component: KnowledgeView,
           meta: { title: '知识管理', breadcrumb: ['知识管理'] },
+        },
+        {
+          path: 'models',
+          name: 'models',
+          component: ModelsView,
+          meta: { title: '模型配置', breadcrumb: ['模型配置'] },
         },
         {
           path: 'knowledge/:id',

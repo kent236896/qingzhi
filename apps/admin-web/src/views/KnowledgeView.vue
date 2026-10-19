@@ -97,7 +97,16 @@ async function openCreate() {
   editorVisible.value = true
 }
 
+function modelName(model?: { id: string; name: string; display_name: string }) {
+  if (!model?.id) return '未绑定'
+  return model.display_name || model.name || model.id
+}
+
 async function save() {
+  if (form.value.wiki_enabled && !options.value.models?.wiki_synthesis?.id) {
+    feedback.warning('尚未绑定 Wiki 生成模型')
+    return
+  }
   saving.value = true
   try {
     await createKnowledgeBase({
@@ -177,6 +186,11 @@ onMounted(load)
         <t-form-item>
           <t-checkbox v-model="form.wiki_enabled">启用 Wiki 与图谱</t-checkbox>
           <p class="hint">勾选后会为文档自动生成 Wiki 页面和知识图谱，会增加大模型调用耗时，创建后不可更改。</p>
+          <p class="hint">将使用默认模型：向量 {{ modelName(options.models?.embedding) }}，摘要 {{ modelName(options.models?.summary) }}。</p>
+          <p v-if="form.wiki_enabled && !options.models?.wiki_synthesis?.id" class="hint">
+            尚未绑定 Wiki 生成模型，不能提交。
+            <router-link :to="{ name: 'models', query: { tab: 'bindings' } }">前往默认模型</router-link>
+          </p>
         </t-form-item>
       </t-form>
     </t-dialog>

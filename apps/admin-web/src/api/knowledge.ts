@@ -79,6 +79,11 @@ export interface FormOptions {
   roles: { id: string; name: string; tenant_id?: string }[]
   users: { id: string; name: string }[]
   can_manage: boolean
+  models?: {
+    embedding: { id: string; name: string; display_name: string }
+    summary: { id: string; name: string; display_name: string }
+    wiki_synthesis: { id: string; name: string; display_name: string }
+  }
 }
 
 export function listKnowledgeBases(params: { page?: number; page_size?: number; keyword?: string; scope_type?: string } = {}) {
