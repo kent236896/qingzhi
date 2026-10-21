@@ -95,7 +95,7 @@ onMounted(() => {
             <t-input-number v-model="form.login_lock_minutes" :min="1" :max="1440" :disabled="!canUpdate" />
           </t-form-item>
           <p class="hint">最近更新：{{ updater || '系统' }} · {{ formatTime(updatedAt) }}</p>
-          <t-button v-if="canUpdate" theme="primary" :loading="saving" @click="save">保存</t-button>
+          <t-button v-if="canUpdate" theme="primary" variant="base" :loading="saving" @click="save">保存</t-button>
         </t-form>
       </PageStatus>
     </t-card>

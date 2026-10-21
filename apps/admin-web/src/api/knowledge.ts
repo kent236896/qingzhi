@@ -57,10 +57,19 @@ export interface WikiNode {
   link_count: number
 }
 
+export interface WikiGraphMeta {
+  mode: string
+  total: number
+  returned: number
+  truncated: boolean
+  center?: string
+  depth?: number
+}
+
 export interface WikiGraph {
   nodes: WikiNode[]
   edges: { source: string; target: string }[]
-  meta: { mode: string; total: number; returned: number; truncated: boolean }
+  meta: WikiGraphMeta
 }
 
 export interface WikiPage {
@@ -68,8 +77,91 @@ export interface WikiPage {
   slug: string
   title: string
   page_type: string
+  status?: string
   summary: string
   content: string
+  aliases?: string[] | null
+  folder_id?: string
+  category_path?: string[]
+  wiki_path?: string
+  depth?: number
+  in_links?: string[] | null
+  out_links?: string[] | null
+  version?: number
+  last_edit_source?: string
+  created_at?: string
+  updated_at?: string
+}
+
+export interface WikiFolder {
+  id: string
+  parent_id: string
+  name: string
+  path: string
+  depth: number
+  sort_order: number
+  page_count: number
+  has_children: boolean
+}
+
+export interface WikiFolderList {
+  parent_id: string
+  folders: WikiFolder[]
+}
+
+export interface WikiPageList {
+  pages: WikiPage[]
+  total: number
+  page: number
+  page_size: number
+  total_pages: number
+}
+
+export interface WikiIndexItem {
+  slug: string
+  title: string
+  summary: string
+  category_path?: string[]
+  wiki_path?: string
+  depth?: number
+}
+
+export interface WikiIndexGroup {
+  type: string
+  total: number
+  items: WikiIndexItem[]
+  next_cursor?: string
+}
+
+export interface WikiIndex {
+  intro: string
+  version: number
+  groups: WikiIndexGroup[]
+}
+
+export interface WikiStats {
+  total_pages: number
+  pages_by_type: Record<string, number>
+  total_links: number
+  orphan_count: number
+  pending_tasks?: number
+  pending_issues?: number
+  is_active?: boolean
+}
+
+export interface WikiTitle {
+  slug: string
+  title: string
+  page_type?: string
+}
+
+export const WIKI_KNOWLEDGE_TYPES = ['entity', 'concept', 'category'] as const
+export const WIKI_SUMMARY_TYPES = ['summary', 'synthesis', 'comparison'] as const
+
+export function wikiGroupCounts(stats?: WikiStats | null) {
+  const byType = stats?.pages_by_type ?? {}
+  const sum = (types: readonly string[]) => types.reduce((total, type) => total + (byType[type] ?? 0), 0)
+  return { knowledge: sum(WIKI_KNOWLEDGE_TYPES), summary: sum(WIKI_SUMMARY_TYPES) }
 }
 
 export interface FormOptions {
@@ -159,10 +251,48 @@ export function getWikiGraph(id: string, params: { mode?: string; center?: strin
   return http.get<WikiGraph>(`/api/v1/knowledge-bases/${id}/wiki/graph`, { params })
 }
 
-export function getWikiPage(id: string, slug: string) {
-  return http.get<WikiPage>(`/api/v1/knowledge-bases/${id}/wiki/pages/${slug}`)
+export function getWikiStats(id: string) {
+  return http.get<WikiStats>(`/api/v1/knowledge-bases/${id}/wiki/stats`)
 }
 
-export function searchWiki(id: string, q: string) {
-  return http.get<{ pages: WikiPage[] }>(`/api/v1/knowledge-bases/${id}/wiki/search`, { params: { q } })
+export function listWikiFolders(id: string, params: { parent_id?: string; page_types?: string } = {}) {
+  return http.get<WikiFolderList>(`/api/v1/knowledge-bases/${id}/wiki/folders`, { params })
+}
+
+export function listWikiPages(
+  id: string,
+  params: {
+    folder_id?: string
+    page_type?: string
+    query?: string
+    page?: number
+    page_size?: number
+    sort_by?: string
+    sort_order?: 'asc' | 'desc'
+  } = {},
+) {
+  return http.get<WikiPageList>(`/api/v1/knowledge-bases/${id}/wiki/pages`, { params })
+}
+
+export function getWikiPage(id: string, slug: string) {
+  return http.get<WikiPage>(`/api/v1/knowledge-bases/${id}/wiki/pages/${encodeWikiSlug(slug)}`)
+}
+
+export function getWikiIndex(id: string, params: { types?: string; limit?: number; cursor?: string } = {}) {
+  return http.get<WikiIndex>(`/api/v1/knowledge-bases/${id}/wiki/index`, { params })
+}
+
+export function searchWiki(id: string, q: string, limit = 10) {
+  return http.get<WikiPageList>(`/api/v1/knowledge-bases/${id}/wiki/search`, { params: { q, limit } })
+}
+
+export function getWikiTitles(id: string) {
+  return http.get<WikiTitle[]>(`/api/v1/knowledge-bases/${id}/wiki/titles`)
+}
+
+function encodeWikiSlug(slug: string) {
+  return slug
+    .split('/')
+    .map((part) => encodeURIComponent(part))
+    .join('/')
 }

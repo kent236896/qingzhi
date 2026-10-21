@@ -70,7 +70,7 @@ onMounted(() => {
       <div class="toolbar">
         <t-input v-model="keyword" clearable placeholder="搜索账号、说明或 IP" @enter="search" />
         <t-select v-model="result" class="result-filter" :options="resultOptions" />
-        <t-button theme="default" @click="search">查询</t-button>
+        <t-button theme="primary" variant="base" @click="search">查询</t-button>
       </div>
       <PageStatus :status="pageStatus" :error-message="errorMessage" description="还没有登录日志" @retry="load">
         <t-table row-key="id" :data="items" :columns="columns" hover>

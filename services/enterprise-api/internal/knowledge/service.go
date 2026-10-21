@@ -6,8 +6,8 @@ import (
 	"log/slog"
 	"net/url"
 	"path"
-	"regexp"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -23,6 +23,7 @@ type Service struct {
 	remote    weknora.Client
 	cfg       config.KnowledgeConfig
 	remoteCfg config.WeKnoraConfig
+	connMu    sync.RWMutex
 	log       *slog.Logger
 	directory ModelDirectory
 }
@@ -38,15 +39,31 @@ func (s *Service) SetModelDirectory(directory ModelDirectory) {
 	}
 }
 
-func (s *Service) Models(ctx context.Context) (KnowledgeModels, error) {
-	if s.directory != nil {
-		return s.directory.KnowledgeModels(ctx)
+// SetConnection marks WeKnora ready after the system settings page saves an address and key.
+func (s *Service) SetConnection(baseURL, apiKey string) {
+	if s == nil {
+		return
 	}
-	return KnowledgeModels{
-		Embedding:     BoundModel{ID: s.remoteCfg.EmbeddingModelID},
-		Summary:       BoundModel{ID: s.remoteCfg.SummaryModelID},
-		WikiSynthesis: BoundModel{ID: s.remoteCfg.WikiSynthesisModelID},
-	}, nil
+	s.connMu.Lock()
+	s.remoteCfg.BaseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	s.remoteCfg.APIKey = strings.TrimSpace(apiKey)
+	s.connMu.Unlock()
+}
+
+func (s *Service) remoteReady() bool {
+	if s == nil || s.remote == nil {
+		return false
+	}
+	s.connMu.RLock()
+	defer s.connMu.RUnlock()
+	return s.remoteCfg.Enabled()
+}
+
+func (s *Service) Models(ctx context.Context) (KnowledgeModels, error) {
+	if s.directory == nil {
+		return KnowledgeModels{}, nil
+	}
+	return s.directory.KnowledgeModels(ctx)
 }
 
 func (s *Service) Limits() Limits {
@@ -122,8 +139,8 @@ func (s *Service) Get(ctx context.Context, actor Actor, id string) (Base, error)
 }
 
 func (s *Service) Create(ctx context.Context, actor Actor, input CreateInput) (Base, error) {
-	if !s.remoteCfg.Enabled() || s.remote == nil {
-		return Base{}, notReady("知识库服务未配置")
+	if !s.remoteReady() {
+		return Base{}, notReady("请先在系统配置中填写 WeKnora 地址和 API Key")
 	}
 	input.Name = strings.TrimSpace(input.Name)
 	input.Description = strings.TrimSpace(input.Description)
@@ -146,10 +163,10 @@ func (s *Service) Create(ctx context.Context, actor Actor, input CreateInput) (B
 		return Base{}, notReady("无法读取默认模型")
 	}
 	if input.WikiEnabled && defaults.WikiSynthesis.ID == "" {
-		return Base{}, invalid("已勾选 Wiki，但未绑定 Wiki 生成模型")
+		return Base{}, invalid("已勾选 Wiki，但未在系统配置中绑定 Wiki 生成模型")
 	}
 	if defaults.Embedding.ID == "" || defaults.Summary.ID == "" {
-		return Base{}, invalid("未配置知识库使用的向量模型或摘要模型")
+		return Base{}, invalid("请先在系统配置中设置向量模型和摘要模型")
 	}
 	shares := []string{}
 	if input.ScopeType == ScopePersonal {
@@ -321,33 +338,6 @@ func (s *Service) WikiGraph(ctx context.Context, actor Actor, id string, query u
 	return s.remote.WikiGraph(ctx, item.RemoteID, query)
 }
 
-func (s *Service) WikiPages(ctx context.Context, actor Actor, id string, query url.Values) (weknora.WikiPageList, error) {
-	item, err := s.wikiReadyBase(ctx, actor, id)
-	if err != nil {
-		return weknora.WikiPageList{}, err
-	}
-	return s.remote.WikiPages(ctx, item.RemoteID, query)
-}
-
-func (s *Service) WikiPage(ctx context.Context, actor Actor, id, slug string) (weknora.WikiPage, error) {
-	item, err := s.wikiReadyBase(ctx, actor, id)
-	if err != nil {
-		return weknora.WikiPage{}, err
-	}
-	return s.remote.WikiPage(ctx, item.RemoteID, slug)
-}
-
-func (s *Service) WikiSearch(ctx context.Context, actor Actor, id, keyword string) (weknora.WikiPageList, error) {
-	item, err := s.wikiReadyBase(ctx, actor, id)
-	if err != nil {
-		return weknora.WikiPageList{}, err
-	}
-	if utf8.RuneCountInString(keyword) > 80 {
-		return weknora.WikiPageList{}, invalid("搜索词不能超过 80 个字符")
-	}
-	return s.remote.WikiSearch(ctx, item.RemoteID, regexp.QuoteMeta(keyword))
-}
-
 func (s *Service) wikiReadyBase(ctx context.Context, actor Actor, id string) (Base, error) {
 	item, _, err := s.visible(ctx, actor, id)
 	if err != nil {
@@ -356,8 +346,8 @@ func (s *Service) wikiReadyBase(ctx context.Context, actor Actor, id string) (Ba
 	if !item.WikiEnabled {
 		return Base{}, invalid("这个知识库没有启用 Wiki")
 	}
-	if s.remote == nil {
-		return Base{}, notReady("知识库服务未配置")
+	if !s.remoteReady() {
+		return Base{}, notReady("请先在系统配置中填写 WeKnora 地址和 API Key")
 	}
 	return item, nil
 }

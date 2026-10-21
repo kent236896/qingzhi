@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	sdk "github.com/Tencent/WeKnora/client"
@@ -37,18 +38,23 @@ type Client interface {
 	BatchReparseKnowledge(ctx context.Context, knowledgeBaseID string, ids []string) error
 	WikiGraph(ctx context.Context, knowledgeBaseID string, query url.Values) (WikiGraph, error)
 	WikiStats(ctx context.Context, knowledgeBaseID string) (WikiStats, error)
+	WikiFolders(ctx context.Context, knowledgeBaseID string, query url.Values) (WikiFolderList, error)
 	WikiPages(ctx context.Context, knowledgeBaseID string, query url.Values) (WikiPageList, error)
 	WikiPage(ctx context.Context, knowledgeBaseID, slug string) (WikiPage, error)
-	WikiSearch(ctx context.Context, knowledgeBaseID, keyword string) (WikiPageList, error)
+	WikiIndex(ctx context.Context, knowledgeBaseID string, query url.Values) (WikiIndex, error)
+	WikiSearch(ctx context.Context, knowledgeBaseID string, query url.Values) (WikiPageList, error)
+	WikiRevisions(ctx context.Context, knowledgeBaseID, slug string, query url.Values) (WikiRevisionList, error)
 }
 
 // HTTPClient calls WeKnora through the official Go SDK.
 // Creating a knowledge base, reading Wiki, and model endpoints whose SDK structs drop fields
 // still use the SDK raw request. Both paths share the base URL, API key, timeout, and request id.
 type HTTPClient struct {
+	mu      sync.RWMutex
 	sdk     *sdk.Client
 	baseURL string
 	apiKey  string
+	timeout time.Duration
 	http    *http.Client
 }
 
@@ -56,19 +62,41 @@ func NewHTTPClient(baseURL, apiKey string, timeout time.Duration) *HTTPClient {
 	if timeout <= 0 {
 		timeout = 30 * time.Second
 	}
-	base := strings.TrimRight(baseURL, "/")
-	return &HTTPClient{
-		sdk:     sdk.NewClient(base, sdk.WithAPIKey(apiKey), sdk.WithTimeout(timeout)),
-		baseURL: base,
-		apiKey:  apiKey,
-		http:    &http.Client{Timeout: timeout},
+	client := &HTTPClient{timeout: timeout, http: &http.Client{Timeout: timeout}}
+	client.Configure(baseURL, apiKey)
+	return client
+}
+
+// Configure replaces the WeKnora address and API key used by later requests.
+func (c *HTTPClient) Configure(baseURL, apiKey string) {
+	if c == nil {
+		return
 	}
+	base := strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	key := strings.TrimSpace(apiKey)
+	timeout := c.timeout
+	if timeout <= 0 {
+		timeout = 30 * time.Second
+	}
+	next := sdk.NewClient(base, sdk.WithAPIKey(key), sdk.WithTimeout(timeout))
+	c.mu.Lock()
+	c.sdk = next
+	c.baseURL = base
+	c.apiKey = key
+	c.mu.Unlock()
+}
+
+func (c *HTTPClient) session() (*sdk.Client, string, string) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.sdk, c.baseURL, c.apiKey
 }
 
 // Exchange performs a JSON request and returns the status and body, including non-2xx responses.
 // Transport failures are returned as err. The body is limited to 8 MiB.
 func (c *HTTPClient) Exchange(ctx context.Context, method, path string, body any) (int, []byte, error) {
-	resp, err := c.sdk.Raw(ctx, method, path, body)
+	client, _, _ := c.session()
+	resp, err := client.Raw(ctx, method, path, body)
 	if err != nil {
 		return 0, nil, err
 	}
@@ -82,14 +110,15 @@ func (c *HTTPClient) Exchange(ctx context.Context, method, path string, body any
 
 // ExchangeMultipart forwards a prepared multipart body. Content-Type must include the boundary.
 func (c *HTTPClient) ExchangeMultipart(ctx context.Context, path, contentType string, body []byte) (int, []byte, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+path, strings.NewReader(string(body)))
+	_, baseURL, apiKey := c.session()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+path, strings.NewReader(string(body)))
 	if err != nil {
 		return 0, nil, err
 	}
 	req.Header.Set("Content-Type", contentType)
 	req.Header.Set("Accept", "application/json")
-	if c.apiKey != "" {
-		req.Header.Set("X-API-Key", c.apiKey)
+	if apiKey != "" {
+		req.Header.Set("X-API-Key", apiKey)
 	}
 	if id, _ := ctx.Value("RequestID").(string); id != "" {
 		req.Header.Set("X-Request-ID", id)
@@ -179,6 +208,8 @@ type WikiMeta struct {
 	Total     int    `json:"total"`
 	Returned  int    `json:"returned"`
 	Truncated bool   `json:"truncated"`
+	Center    string `json:"center,omitempty"`
+	Depth     int    `json:"depth,omitempty"`
 }
 
 type WikiStats struct {
@@ -191,25 +222,9 @@ type WikiStats struct {
 	IsActive      bool           `json:"is_active"`
 }
 
-type WikiPageList struct {
-	Pages     []WikiPage `json:"pages"`
-	Total     int64      `json:"total"`
-	Page      int        `json:"page"`
-	PageSize  int        `json:"page_size"`
-	TotalPage int        `json:"total_pages"`
-}
-
-type WikiPage struct {
-	ID       string `json:"id"`
-	Slug     string `json:"slug"`
-	Title    string `json:"title"`
-	PageType string `json:"page_type"`
-	Summary  string `json:"summary"`
-	Content  string `json:"content"`
-}
-
 func (c *HTTPClient) GetSystemInfo(ctx context.Context) (SystemInfo, error) {
-	info, err := c.sdk.GetSystemInfo(ctx)
+	client, _, _ := c.session()
+	info, err := client.GetSystemInfo(ctx)
 	if err != nil {
 		return SystemInfo{}, wrap(err)
 	}
@@ -220,7 +235,8 @@ func (c *HTTPClient) GetSystemInfo(ctx context.Context) (SystemInfo, error) {
 }
 
 func (c *HTTPClient) GetDeploymentCapabilities(ctx context.Context) (DeploymentCapabilities, error) {
-	caps, err := c.sdk.GetDeploymentCapabilities(ctx)
+	client, _, _ := c.session()
+	caps, err := client.GetDeploymentCapabilities(ctx)
 	if err != nil {
 		return DeploymentCapabilities{}, wrap(err)
 	}
@@ -265,11 +281,13 @@ func (c *HTTPClient) CreateKnowledgeBase(ctx context.Context, input CreateKnowle
 }
 
 func (c *HTTPClient) DeleteKnowledgeBase(ctx context.Context, id string) error {
-	return wrap(c.sdk.DeleteKnowledgeBase(ctx, id))
+	client, _, _ := c.session()
+	return wrap(client.DeleteKnowledgeBase(ctx, id))
 }
 
 func (c *HTTPClient) CreateKnowledgeFromFile(ctx context.Context, knowledgeBaseID, filePath, customFileName string) (RemoteKnowledge, error) {
-	item, err := c.sdk.CreateKnowledgeFromFile(ctx, knowledgeBaseID, filePath, nil, nil, customFileName, "", nil)
+	client, _, _ := c.session()
+	item, err := client.CreateKnowledgeFromFile(ctx, knowledgeBaseID, filePath, nil, nil, customFileName, "", nil)
 	if err != nil {
 		if item != nil && errors.Is(err, ErrDuplicate) {
 			return remoteKnowledge(*item), ErrDuplicate
@@ -283,9 +301,10 @@ func (c *HTTPClient) CreateKnowledgeFromFile(ctx context.Context, knowledgeBaseI
 }
 
 func (c *HTTPClient) ListKnowledge(ctx context.Context, knowledgeBaseID string) ([]RemoteKnowledge, error) {
+	client, _, _ := c.session()
 	var all []RemoteKnowledge
 	for page := 1; page < 100; page++ {
-		items, total, err := c.sdk.ListKnowledge(ctx, knowledgeBaseID, page, 100, "")
+		items, total, err := client.ListKnowledge(ctx, knowledgeBaseID, page, 100, "")
 		if err != nil {
 			return nil, wrap(err)
 		}
@@ -303,7 +322,8 @@ func (c *HTTPClient) ListKnowledge(ctx context.Context, knowledgeBaseID string) 
 }
 
 func (c *HTTPClient) DeleteKnowledge(ctx context.Context, id string) error {
-	return wrap(c.sdk.DeleteKnowledge(ctx, id))
+	client, _, _ := c.session()
+	return wrap(client.DeleteKnowledge(ctx, id))
 }
 
 func (c *HTTPClient) BatchDeleteKnowledge(ctx context.Context, knowledgeBaseID string, ids []string) error {
@@ -311,7 +331,8 @@ func (c *HTTPClient) BatchDeleteKnowledge(ctx context.Context, knowledgeBaseID s
 }
 
 func (c *HTTPClient) ReparseKnowledge(ctx context.Context, id string) error {
-	_, err := c.sdk.ReparseKnowledge(ctx, id)
+	client, _, _ := c.session()
+	_, err := client.ReparseKnowledge(ctx, id)
 	return wrap(err)
 }
 
@@ -345,6 +366,16 @@ func (c *HTTPClient) WikiStats(ctx context.Context, knowledgeBaseID string) (Wik
 	return stats, err
 }
 
+func (c *HTTPClient) WikiFolders(ctx context.Context, knowledgeBaseID string, query url.Values) (WikiFolderList, error) {
+	var list WikiFolderList
+	path := "/api/v1/knowledgebase/" + url.PathEscape(knowledgeBaseID) + "/wiki/folders"
+	if encoded := query.Encode(); encoded != "" {
+		path += "?" + encoded
+	}
+	err := c.readRaw(ctx, http.MethodGet, path, nil, &list)
+	return list, err
+}
+
 func (c *HTTPClient) WikiPages(ctx context.Context, knowledgeBaseID string, query url.Values) (WikiPageList, error) {
 	var list WikiPageList
 	err := c.readRaw(ctx, http.MethodGet, "/api/v1/knowledgebase/"+url.PathEscape(knowledgeBaseID)+"/wiki/pages?"+query.Encode(), nil, &list)
@@ -357,11 +388,29 @@ func (c *HTTPClient) WikiPage(ctx context.Context, knowledgeBaseID, slug string)
 	return page, err
 }
 
-func (c *HTTPClient) WikiSearch(ctx context.Context, knowledgeBaseID, keyword string) (WikiPageList, error) {
-	query := url.Values{}
-	query.Set("q", keyword)
+func (c *HTTPClient) WikiIndex(ctx context.Context, knowledgeBaseID string, query url.Values) (WikiIndex, error) {
+	var index WikiIndex
+	path := "/api/v1/knowledgebase/" + url.PathEscape(knowledgeBaseID) + "/wiki/index"
+	if encoded := query.Encode(); encoded != "" {
+		path += "?" + encoded
+	}
+	err := c.readRaw(ctx, http.MethodGet, path, nil, &index)
+	return index, err
+}
+
+func (c *HTTPClient) WikiSearch(ctx context.Context, knowledgeBaseID string, query url.Values) (WikiPageList, error) {
 	var list WikiPageList
 	err := c.readRaw(ctx, http.MethodGet, "/api/v1/knowledgebase/"+url.PathEscape(knowledgeBaseID)+"/wiki/search?"+query.Encode(), nil, &list)
+	return list, err
+}
+
+func (c *HTTPClient) WikiRevisions(ctx context.Context, knowledgeBaseID, slug string, query url.Values) (WikiRevisionList, error) {
+	var list WikiRevisionList
+	path := "/api/v1/knowledgebase/" + url.PathEscape(knowledgeBaseID) + "/wiki/revisions/" + escapeSlug(slug)
+	if encoded := query.Encode(); encoded != "" {
+		path += "?" + encoded
+	}
+	err := c.readRaw(ctx, http.MethodGet, path, nil, &list)
 	return list, err
 }
 
@@ -381,7 +430,8 @@ func escapeSlug(slug string) string {
 }
 
 func (c *HTTPClient) readRaw(ctx context.Context, method, path string, body any, target any) error {
-	resp, err := c.sdk.Raw(ctx, method, path, body)
+	client, _, _ := c.session()
+	resp, err := client.Raw(ctx, method, path, body)
 	if err != nil {
 		return wrap(err)
 	}

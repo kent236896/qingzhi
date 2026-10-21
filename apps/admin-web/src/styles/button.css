@@ -1,0 +1,76 @@
+:root {
+  --app-primary: #534ab7;
+  --app-primary-hover: #3c3489;
+  --app-primary-soft: rgba(83, 74, 183, 0.08);
+  --app-danger: #d92d2d;
+  --app-danger-border: #f09595;
+  --app-danger-soft: rgba(217, 45, 45, 0.08);
+  --app-btn-radius: 8px;
+
+  --td-brand-color: var(--app-primary);
+  --td-brand-color-hover: var(--app-primary-hover);
+  --td-brand-color-active: var(--app-primary-hover);
+  --td-error-color: var(--app-danger);
+  --td-error-color-hover: var(--app-danger);
+}
+
+.t-button {
+  border-radius: var(--app-btn-radius);
+  font-size: 14px;
+}
+
+/* 次按钮:紫色描边 */
+.t-button--theme-primary.t-button--variant-outline {
+  color: var(--app-primary);
+  border-color: var(--app-primary);
+  background: transparent;
+}
+
+.t-button--theme-primary.t-button--variant-outline:hover,
+.t-button--theme-primary.t-button--variant-outline:focus-visible {
+  color: var(--app-primary);
+  border-color: var(--app-primary);
+  background: var(--app-primary-soft);
+}
+
+/* 普通按钮:灰色描边,悬停变紫 */
+.t-button--theme-default.t-button--variant-outline:hover,
+.t-button--theme-default.t-button--variant-outline:focus-visible {
+  color: var(--app-primary);
+  border-color: var(--app-primary);
+  background: transparent;
+}
+
+/* 危险按钮:红字浅红边 */
+.t-button--theme-danger.t-button--variant-outline {
+  color: var(--app-danger);
+  border-color: var(--app-danger-border);
+  background: transparent;
+}
+
+.t-button--theme-danger.t-button--variant-outline:hover,
+.t-button--theme-danger.t-button--variant-outline:focus-visible {
+  color: var(--app-danger);
+  border-color: var(--app-danger);
+  background: var(--app-danger-soft);
+}
+
+/* 禁用态:统一灰色,覆盖所有主题 */
+.t-button.t-is-disabled,
+.t-button.t-is-disabled:hover,
+.t-button.t-is-disabled:focus-visible {
+  color: var(--td-text-color-disabled) !important;
+  background: var(--td-bg-color-component-disabled) !important;
+  border-color: var(--td-component-border) !important;
+  cursor: not-allowed;
+}
+
+.toolbar {
+  gap: 8px;
+}
+
+.toolbar .t-divider {
+  margin: 0 4px;
+  height: 20px;
+  border-color: var(--td-component-border);
+}

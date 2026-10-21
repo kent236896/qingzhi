@@ -71,7 +71,7 @@ async function submit() {
           <t-input v-model="tenantId" placeholder="多租户时填写 tenant_id" @enter="submit" />
         </t-form-item>
         <p v-if="errorMessage" class="error">{{ errorMessage }}</p>
-        <t-button theme="primary" type="submit" block :loading="submitting" @click.prevent="submit">
+        <t-button theme="primary" variant="base" type="submit" block :loading="submitting" @click.prevent="submit">
           登录
         </t-button>
       </t-form>

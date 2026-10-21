@@ -237,6 +237,53 @@ func TestMenuNameMigrationRenamesPages(t *testing.T) {
 	}
 }
 
+func TestSystemSettingsMigration(t *testing.T) {
+	content, err := fs.ReadFile(FS, "000019_system_settings.up.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(content)
+	upper := strings.ToUpper(text)
+	if !strings.Contains(upper, "CREATE TABLE SYS_WEKNORA_SETTINGS") {
+		t.Fatal("settings migration does not create sys_weknora_settings")
+	}
+	for _, permission := range []string{"system:settings:query", "system:settings:update", "系统配置"} {
+		if !strings.Contains(text, permission) {
+			t.Fatalf("settings migration missing %s", permission)
+		}
+	}
+	if !strings.Contains(text, "super_admin") {
+		t.Fatal("settings menu is not limited to super_admin")
+	}
+	down, err := fs.ReadFile(FS, "000019_system_settings.down.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(strings.ToUpper(string(down)), "DROP TABLE IF EXISTS SYS_WEKNORA_SETTINGS") {
+		t.Fatal("settings down migration does not drop the table")
+	}
+}
+
+func TestModelMenuMovesIntoSettings(t *testing.T) {
+	content, err := fs.ReadFile(FS, "000020_model_menu_into_settings.up.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(content)
+	for _, piece := range []string{"model:query", "model:manage", "a1000000-0000-4000-8000-000000000020", "DELETE FROM sys_menus"} {
+		if !strings.Contains(text, piece) {
+			t.Fatalf("model menu migration missing %s", piece)
+		}
+	}
+	down, err := fs.ReadFile(FS, "000020_model_menu_into_settings.down.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(down), "模型配置") {
+		t.Fatal("model menu down migration does not restore the page")
+	}
+}
+
 func TestPostMigrationCreatesTable(t *testing.T) {
 	content, err := fs.ReadFile(FS, "000004_sys_posts.up.sql")
 	if err != nil {

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { DialogPlugin } from 'tdesign-vue-next'
-import { AddIcon, DeleteIcon, EditIcon, SearchIcon } from 'tdesign-icons-vue-next'
+import { SearchIcon } from 'tdesign-icons-vue-next'
 import PageStatus from '@/components/PageStatus.vue'
 import { statusLabel, type RecordStatus } from '@/api/identity'
 import {
@@ -64,10 +64,10 @@ const dataForm = ref({
 const selected = computed(() => types.value.find((item) => item.id === selectedId.value))
 
 const typeColumns = [
-  { colKey: 'name', title: '名称', ellipsis: true },
-  { colKey: 'type', title: '类型', ellipsis: true },
-  { colKey: 'status', title: '状态', width: 88 },
-  { colKey: 'actions', title: '操作', width: 140 },
+  { colKey: 'name', title: '名称', ellipsis: true, className: 'dict-col-name' },
+  { colKey: 'type', title: '类型', ellipsis: true, width: 180 },
+  { colKey: 'status', title: '状态', width: 100 },
+  { colKey: 'actions', title: '操作', width: 128 },
 ]
 
 const dataColumns = [
@@ -75,12 +75,12 @@ const dataColumns = [
   { colKey: 'value', title: '键值', width: 120 },
   { colKey: 'sort', title: '排序', width: 72 },
   { colKey: 'color_type', title: '颜色', width: 100 },
-  { colKey: 'status', title: '状态', width: 88 },
-  { colKey: 'actions', title: '操作', width: 140 },
+  { colKey: 'status', title: '状态', width: 100 },
+  { colKey: 'actions', title: '操作', width: 128 },
 ]
 
-function tagTheme(color: string): 'default' | 'primary' | 'success' | 'warning' | 'danger' {
-  if (color === 'primary' || color === 'success' || color === 'warning' || color === 'danger') {
+function tagTheme(color: string): 'default' | 'success' | 'warning' | 'danger' {
+  if (color === 'success' || color === 'warning' || color === 'danger') {
     return color
   }
   return 'default'
@@ -88,6 +88,14 @@ function tagTheme(color: string): 'default' | 'primary' | 'success' | 'warning' 
 
 function colorLabel(color: string) {
   return colorTypeOptions.find((item) => item.value === color)?.label || color || '—'
+}
+
+function typeTotalContent() {
+  return `共 ${typeTotal.value} 条数据`
+}
+
+function dataTotalContent() {
+  return `共 ${dataTotal.value} 条数据`
 }
 
 async function loadTypes() {
@@ -319,56 +327,97 @@ onMounted(() => {
 <template>
   <div class="dicts-page">
     <div class="dicts-layout">
-      <t-card class="dicts-panel" title="字典类型" :bordered="false">
-        <div class="toolbar">
-          <t-input v-model="typeKeyword" clearable placeholder="搜索名称或类型" @enter="searchTypes">
+      <t-card class="dicts-panel" :bordered="false">
+        <template #header>
+          <span class="dicts-panel__heading">字典类型</span>
+        </template>
+        <div class="dicts-toolbar">
+          <t-input
+            v-model="typeKeyword"
+            class="dicts-search"
+            clearable
+            placeholder="搜索名称或类型"
+            @enter="searchTypes"
+          >
             <template #prefix-icon><SearchIcon /></template>
           </t-input>
-          <t-button theme="default" @click="searchTypes">查询</t-button>
-          <t-button v-if="canCreate" theme="primary" @click="openCreateType">
-            <template #icon><AddIcon /></template>
+          <t-button theme="default" variant="outline" @click="searchTypes">查询</t-button>
+          <t-button
+            v-if="canCreate"
+            class="dicts-toolbar__create"
+            theme="primary"
+            variant="base"
+            @click="openCreateType"
+          >
             新建类型
           </t-button>
         </div>
-        <PageStatus :status="typeStatus" :error-message="typeError" description="还没有字典类型" @retry="loadTypes">
-          <t-table
-            row-key="id"
-            :data="types"
-            :columns="typeColumns"
-            hover
-            :row-class-name="typeRowClass"
-            @row-click="onTypeRow"
-          >
-            <template #status="{ row }">
-              <t-tag :theme="row.status === 0 ? 'success' : 'warning'" variant="light" size="small">
-                {{ statusLabel(row.status) }}
-              </t-tag>
-            </template>
-            <template #actions="{ row }">
-              <t-button v-if="canUpdate" theme="primary" variant="text" @click.stop="openEditType(row)">
-                <template #icon><EditIcon /></template>
-                编辑
-              </t-button>
-              <t-button v-if="canDelete" theme="danger" variant="text" @click.stop="removeType(row)">
-                <template #icon><DeleteIcon /></template>
-                删除
-              </t-button>
-            </template>
-          </t-table>
+        <PageStatus :status="typeStatus" :error-message="typeError" description="暂无数据" @retry="loadTypes">
+          <div class="dicts-table-wrap">
+            <t-table
+              row-key="id"
+              class="dicts-table"
+              :data="types"
+              :columns="typeColumns"
+              hover
+              :row-class-name="typeRowClass"
+              @row-click="onTypeRow"
+            >
+              <template #type="{ row }">
+                <code class="dict-code">{{ row.type }}</code>
+              </template>
+              <template #status="{ row }">
+                <span class="dict-status" :class="row.status === 0 ? 'dict-status--ok' : 'dict-status--off'">
+                  {{ statusLabel(row.status) }}
+                </span>
+              </template>
+              <template #actions="{ row }">
+                <div class="dict-actions">
+                  <t-button
+                    v-if="canUpdate"
+                    theme="primary"
+                    variant="text"
+                    @click.stop="openEditType(row)"
+                  >
+                    编辑
+                  </t-button>
+                  <span v-if="canUpdate && canDelete" class="dict-actions__divider" />
+                  <t-button
+                    v-if="canDelete"
+                    theme="danger"
+                    variant="text"
+                    @click.stop="removeType(row)"
+                  >
+                    删除
+                  </t-button>
+                </div>
+              </template>
+            </t-table>
+          </div>
           <t-pagination
             v-model="typePage"
             v-model:page-size="typePageSize"
-            class="pager"
+            class="dicts-pager"
             :total="typeTotal"
+            :total-content="typeTotalContent"
+            show-page-size
             @change="loadTypes"
           />
         </PageStatus>
       </t-card>
 
-      <t-card class="dicts-panel" :title="selected ? `${selected.name} · ${selected.type}` : '字典数据'" :bordered="false">
-        <div class="toolbar">
+      <t-card class="dicts-panel" :bordered="false">
+        <template #header>
+          <div v-if="selected" class="dicts-panel__heading dicts-panel__heading--pair">
+            <span>{{ selected.name }}</span>
+            <code class="dict-code">{{ selected.type }}</code>
+          </div>
+          <span v-else class="dicts-panel__heading">字典数据</span>
+        </template>
+        <div class="dicts-toolbar">
           <t-input
             v-model="dataKeyword"
+            class="dicts-search"
             clearable
             :disabled="!selected"
             placeholder="搜索标签或键值"
@@ -376,9 +425,15 @@ onMounted(() => {
           >
             <template #prefix-icon><SearchIcon /></template>
           </t-input>
-          <t-button theme="default" :disabled="!selected" @click="searchData">查询</t-button>
-          <t-button v-if="canCreate" theme="primary" :disabled="!selected" @click="openCreateData">
-            <template #icon><AddIcon /></template>
+          <t-button theme="default" variant="outline" :disabled="!selected" @click="searchData">查询</t-button>
+          <t-button
+            v-if="canCreate"
+            class="dicts-toolbar__create"
+            theme="primary"
+            variant="base"
+            :disabled="!selected"
+            @click="openCreateData"
+          >
             新建数据
           </t-button>
         </div>
@@ -390,37 +445,52 @@ onMounted(() => {
           v-else
           :status="dataStatus"
           :error-message="dataError"
-          description="这个类型还没有数据"
+          description="暂无数据"
           @retry="loadData"
         >
-          <t-table row-key="id" :data="items" :columns="dataColumns" hover>
-            <template #color_type="{ row }">
-              <t-tag v-if="row.color_type" :theme="tagTheme(row.color_type)" variant="light" size="small">
-                {{ colorLabel(row.color_type) }}
-              </t-tag>
-              <span v-else>—</span>
-            </template>
-            <template #status="{ row }">
-              <t-tag :theme="row.status === 0 ? 'success' : 'warning'" variant="light" size="small">
-                {{ statusLabel(row.status) }}
-              </t-tag>
-            </template>
-            <template #actions="{ row }">
-              <t-button v-if="canUpdate" theme="primary" variant="text" @click="openEditData(row)">
-                <template #icon><EditIcon /></template>
-                编辑
-              </t-button>
-              <t-button v-if="canDelete" theme="danger" variant="text" @click="removeData(row)">
-                <template #icon><DeleteIcon /></template>
-                删除
-              </t-button>
-            </template>
-          </t-table>
+          <div class="dicts-table-wrap">
+            <t-table row-key="id" class="dicts-table" :data="items" :columns="dataColumns" hover>
+              <template #color_type="{ row }">
+                <t-tag v-if="row.color_type" :theme="tagTheme(row.color_type)" variant="light" size="small">
+                  {{ colorLabel(row.color_type) }}
+                </t-tag>
+                <span v-else>—</span>
+              </template>
+              <template #status="{ row }">
+                <span class="dict-status" :class="row.status === 0 ? 'dict-status--ok' : 'dict-status--off'">
+                  {{ statusLabel(row.status) }}
+                </span>
+              </template>
+              <template #actions="{ row }">
+                <div class="dict-actions">
+                  <t-button
+                    v-if="canUpdate"
+                    theme="primary"
+                    variant="text"
+                    @click.stop="openEditData(row)"
+                  >
+                    编辑
+                  </t-button>
+                  <span v-if="canUpdate && canDelete" class="dict-actions__divider" />
+                  <t-button
+                    v-if="canDelete"
+                    theme="danger"
+                    variant="text"
+                    @click.stop="removeData(row)"
+                  >
+                    删除
+                  </t-button>
+                </div>
+              </template>
+            </t-table>
+          </div>
           <t-pagination
             v-model="dataPage"
             v-model:page-size="dataPageSize"
-            class="pager"
+            class="dicts-pager"
             :total="dataTotal"
+            :total-content="dataTotalContent"
+            show-page-size
             @change="loadData"
           />
         </PageStatus>
@@ -429,8 +499,10 @@ onMounted(() => {
 
     <t-dialog
       v-model:visible="typeEditorVisible"
+      dialog-class-name="dicts-dialog"
       :header="editingType ? '编辑字典类型' : '新建字典类型'"
-      :confirm-btn="{ content: '保存', loading: typeSaving }"
+      :confirm-btn="{ content: '保存', loading: typeSaving, theme: 'primary', variant: 'base' }"
+      :cancel-btn="{ content: '取消', theme: 'default', variant: 'outline' }"
       width="480px"
       @confirm="saveType"
     >
@@ -455,8 +527,10 @@ onMounted(() => {
 
     <t-dialog
       v-model:visible="dataEditorVisible"
+      dialog-class-name="dicts-dialog"
       :header="editingData ? '编辑字典数据' : '新建字典数据'"
-      :confirm-btn="{ content: '保存', loading: dataSaving }"
+      :confirm-btn="{ content: '保存', loading: dataSaving, theme: 'primary', variant: 'base' }"
+      :cancel-btn="{ content: '取消', theme: 'default', variant: 'outline' }"
       width="480px"
       @confirm="saveData"
     >
@@ -500,22 +574,191 @@ onMounted(() => {
   grid-template-columns: minmax(420px, 0.9fr) minmax(480px, 1.1fr);
   gap: 16px;
   align-items: stretch;
-  min-height: calc(100vh - 148px);
+  min-height: calc(100vh - 200px);
 }
 
 .dicts-panel {
   height: 100%;
-  box-shadow: var(--td-shadow-1);
+  border: 1px solid var(--qz-border);
+  border-radius: 12px;
+  box-shadow: none;
+}
+
+.dicts-panel :deep(.t-card__header) {
+  padding: 18px 20px 0;
+  border-bottom: none;
 }
 
 .dicts-panel :deep(.t-card__body) {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  padding: 16px 20px 18px;
 }
 
-.dicts-panel :deep(.dict-row--active) {
-  background: var(--td-brand-color-light);
+.dicts-panel__heading {
+  color: var(--qz-text);
+  font-size: 16px;
+  font-weight: 500;
+}
+
+.dicts-panel__heading--pair {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.dicts-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.dicts-search {
+  width: 100%;
+  max-width: 280px;
+}
+
+.dicts-search :deep(.t-input) {
+  height: 32px;
+  border-radius: 8px;
+}
+
+.dicts-toolbar__create {
+  margin-left: auto;
+}
+
+.dicts-table-wrap {
+  overflow: hidden;
+  border: 1px solid var(--qz-border);
+  border-radius: 10px;
+}
+
+.dicts-table :deep(.t-table) {
+  background: transparent;
+}
+
+.dicts-table :deep(.t-table__header tr) {
+  background: var(--qz-hover);
+}
+
+.dicts-table :deep(.t-table__th-cell-inner),
+.dicts-table :deep(th) {
+  height: 40px;
+  color: var(--qz-text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+  background: var(--qz-hover);
+}
+
+.dicts-table :deep(td) {
+  height: 48px;
+  border-right: none;
+  border-bottom: 1px solid var(--qz-border);
+}
+
+.dicts-table :deep(.t-table__body tr:hover > td) {
+  background: var(--qz-hover);
+}
+
+.dicts-table :deep(.dict-row--active > td) {
+  background: var(--app-primary-soft);
+}
+
+.dicts-table :deep(.dict-row--active .dict-col-name),
+.dicts-table :deep(.dict-row--active td:first-child) {
+  color: var(--app-primary);
+  font-weight: 500;
+}
+
+.dicts-table :deep(.t-table__empty) {
+  height: 96px;
+  color: var(--qz-text-secondary);
+}
+
+.dict-code {
+  display: inline-block;
+  padding: 2px 8px;
+  border: 1px solid var(--qz-border);
+  border-radius: 6px;
+  background: var(--qz-hover);
+  color: var(--qz-text-secondary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.dict-status {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.dict-status::before {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  content: '';
+}
+
+.dict-status--ok {
+  background: var(--qz-success-light);
+  color: var(--qz-success);
+}
+
+.dict-status--ok::before {
+  background: var(--qz-success);
+}
+
+.dict-status--off {
+  background: var(--qz-hover);
+  color: var(--qz-text-secondary);
+}
+
+.dict-status--off::before {
+  background: var(--qz-text-placeholder);
+}
+
+.dict-actions {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+  white-space: nowrap;
+}
+
+.dict-actions__divider {
+  display: inline-block;
+  width: 1px;
+  height: 12px;
+  background: var(--qz-border);
+}
+
+.dict-actions :deep(.t-button) {
+  border-radius: 6px;
+}
+
+.dict-actions :deep(.t-button--theme-primary.t-button--variant-text:hover) {
+  background: var(--app-primary-soft);
+}
+
+.dict-actions :deep(.t-button--theme-danger.t-button--variant-text:hover) {
+  background: var(--app-danger-soft);
+}
+
+.dicts-pager {
+  margin-top: 16px;
+}
+
+.dicts-pager :deep(.t-pagination__total) {
+  color: var(--qz-text-secondary);
+  font-size: 13px;
 }
 
 .dicts-empty {
@@ -523,8 +766,8 @@ onMounted(() => {
   flex: 1;
   gap: 8px;
   place-content: center;
-  min-height: 240px;
-  color: var(--td-text-color-secondary);
+  min-height: 96px;
+  color: var(--qz-text-secondary);
   text-align: center;
 }
 
@@ -534,7 +777,7 @@ onMounted(() => {
 }
 
 .dicts-empty span {
-  color: var(--td-text-color-placeholder);
+  color: var(--qz-text-placeholder);
   font-size: 12px;
 }
 
@@ -542,6 +785,10 @@ onMounted(() => {
   .dicts-layout {
     grid-template-columns: 1fr;
     min-height: auto;
+  }
+
+  .dicts-toolbar__create {
+    margin-left: 0;
   }
 }
 </style>

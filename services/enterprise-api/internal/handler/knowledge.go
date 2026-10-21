@@ -50,9 +50,14 @@ func (h Knowledge) Register(group *gin.RouterGroup, enforce bool) {
 	group.POST("/knowledge-bases/:id/files/reparse", query, h.reparseFiles)
 	group.GET("/knowledge-bases/:id/wiki/status", query, h.wikiStatus)
 	group.GET("/knowledge-bases/:id/wiki/graph", query, h.wikiGraph)
+	group.GET("/knowledge-bases/:id/wiki/stats", query, h.wikiStats)
+	group.GET("/knowledge-bases/:id/wiki/folders", query, h.wikiFolders)
 	group.GET("/knowledge-bases/:id/wiki/pages", query, h.wikiPages)
 	group.GET("/knowledge-bases/:id/wiki/pages/*slug", query, h.wikiPage)
+	group.GET("/knowledge-bases/:id/wiki/index", query, h.wikiIndex)
 	group.GET("/knowledge-bases/:id/wiki/search", query, h.wikiSearch)
+	group.GET("/knowledge-bases/:id/wiki/titles", query, h.wikiTitles)
+	group.GET("/knowledge-bases/:id/wiki/revisions/*slug", query, h.wikiRevisions)
 }
 
 func (h Knowledge) limits(c *gin.Context) {
@@ -312,27 +317,50 @@ func (h Knowledge) wikiGraph(c *gin.Context) {
 	h.write(c, item, err)
 }
 
-func (h Knowledge) wikiPages(c *gin.Context) {
+func (h Knowledge) wikiStats(c *gin.Context) {
+	actor, id, ok := h.base(c)
+	if !ok {
+		return
+	}
+	item, err := h.Service.WikiStatsPublic(weknora.WithRequestID(c.Request.Context(), response.RequestID(c)), actor, id)
+	h.write(c, item, err)
+}
+
+func (h Knowledge) wikiFolders(c *gin.Context) {
 	actor, id, ok := h.base(c)
 	if !ok {
 		return
 	}
 	query := url.Values{}
-	if page := c.Query("page"); page != "" {
-		query.Set("page", page)
+	if parentID := c.Query("parent_id"); parentID != "" {
+		query.Set("parent_id", parentID)
 	}
-	if pageSize := c.Query("page_size"); pageSize != "" {
-		query.Set("page_size", pageSize)
-	}
-	if pageType := c.Query("page_type"); pageType != "" {
-		if !safeToken.MatchString(pageType) {
-			response.Fail(c, http.StatusBadRequest, response.CodeInvalidParams, "页面类型不正确", nil)
-			return
+	if pageTypes := c.Query("page_types"); pageTypes != "" {
+		for _, item := range strings.Split(pageTypes, ",") {
+			item = strings.TrimSpace(item)
+			if item == "" {
+				continue
+			}
+			if !safeToken.MatchString(item) {
+				response.Fail(c, http.StatusBadRequest, response.CodeInvalidParams, "页面类型不正确", nil)
+				return
+			}
 		}
-		query.Set("page_type", pageType)
+		query.Set("page_types", pageTypes)
 	}
-	if keyword := c.Query("query"); keyword != "" {
-		query.Set("query", regexp.QuoteMeta(keyword))
+	item, err := h.Service.WikiFolders(weknora.WithRequestID(c.Request.Context(), response.RequestID(c)), actor, id, query)
+	h.write(c, item, err)
+}
+
+func (h Knowledge) wikiPages(c *gin.Context) {
+	actor, id, ok := h.base(c)
+	if !ok {
+		return
+	}
+	query, err := knowledge.BuildWikiPagesQuery(c.Request.URL.Query())
+	if err != nil {
+		h.write(c, nil, err)
+		return
 	}
 	item, err := h.Service.WikiPages(weknora.WithRequestID(c.Request.Context(), response.RequestID(c)), actor, id, query)
 	h.write(c, item, err)
@@ -344,11 +372,21 @@ func (h Knowledge) wikiPage(c *gin.Context) {
 		return
 	}
 	slug := strings.Trim(c.Param("slug"), "/")
-	if slug == "" || strings.Contains(slug, "..") {
-		response.Fail(c, http.StatusBadRequest, response.CodeInvalidParams, "页面地址不正确", nil)
+	item, err := h.Service.WikiPage(weknora.WithRequestID(c.Request.Context(), response.RequestID(c)), actor, id, slug)
+	h.write(c, item, err)
+}
+
+func (h Knowledge) wikiIndex(c *gin.Context) {
+	actor, id, ok := h.base(c)
+	if !ok {
 		return
 	}
-	item, err := h.Service.WikiPage(weknora.WithRequestID(c.Request.Context(), response.RequestID(c)), actor, id, slug)
+	query, err := knowledge.BuildWikiIndexQuery(c.Request.URL.Query())
+	if err != nil {
+		h.write(c, nil, err)
+		return
+	}
+	item, err := h.Service.WikiIndex(weknora.WithRequestID(c.Request.Context(), response.RequestID(c)), actor, id, query)
 	h.write(c, item, err)
 }
 
@@ -357,7 +395,41 @@ func (h Knowledge) wikiSearch(c *gin.Context) {
 	if !ok {
 		return
 	}
-	item, err := h.Service.WikiSearch(weknora.WithRequestID(c.Request.Context(), response.RequestID(c)), actor, id, c.Query("q"))
+	limit, err := knowledge.ClampWikiSearchLimit(c.Query("limit"))
+	if err != nil {
+		h.write(c, nil, err)
+		return
+	}
+	item, err := h.Service.WikiSearch(weknora.WithRequestID(c.Request.Context(), response.RequestID(c)), actor, id, c.Query("q"), limit)
+	h.write(c, item, err)
+}
+
+func (h Knowledge) wikiTitles(c *gin.Context) {
+	actor, id, ok := h.base(c)
+	if !ok {
+		return
+	}
+	item, err := h.Service.WikiTitleMap(weknora.WithRequestID(c.Request.Context(), response.RequestID(c)), actor, id)
+	h.write(c, item, err)
+}
+
+func (h Knowledge) wikiRevisions(c *gin.Context) {
+	actor, id, ok := h.base(c)
+	if !ok {
+		return
+	}
+	query := url.Values{}
+	if version := c.Query("version"); version != "" {
+		query.Set("version", version)
+	}
+	if limit := c.Query("limit"); limit != "" {
+		query.Set("limit", limit)
+	}
+	if offset := c.Query("offset"); offset != "" {
+		query.Set("offset", offset)
+	}
+	slug := strings.Trim(c.Param("slug"), "/")
+	item, err := h.Service.WikiRevisions(weknora.WithRequestID(c.Request.Context(), response.RequestID(c)), actor, id, slug, query)
 	h.write(c, item, err)
 }
 

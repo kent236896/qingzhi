@@ -149,24 +149,6 @@ func TestTestForwardsModelID(t *testing.T) {
 	}
 }
 
-func TestSeedDoesNotOverrideExisting(t *testing.T) {
-	store := &memStore{items: []Binding{{Role: RoleEmbedding, ModelID: "kept"}}}
-	cfg := enabledConfig()
-	cfg.EmbeddingModelID = "from-env"
-	svc := NewService(store, &fakeRemote{}, cfg, nil)
-	if err := svc.SeedFallback(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	item, err := store.Find(context.Background(), RoleEmbedding)
-	if err != nil || item.ModelID != "kept" {
-		t.Fatalf("item = %#v err = %v", item, err)
-	}
-	summary, err := store.Find(context.Background(), RoleSummary)
-	if err != nil || summary.ModelID != "summary-env" {
-		t.Fatalf("summary = %#v err = %v", summary, err)
-	}
-}
-
 type fakeRemote struct {
 	model       Model
 	credentials int
@@ -243,7 +225,7 @@ func sampleModel() Model {
 }
 
 func enabledConfig() config.WeKnoraConfig {
-	return config.WeKnoraConfig{BaseURL: "http://example.test", APIKey: "test-key", SummaryModelID: "summary-env"}
+	return config.WeKnoraConfig{BaseURL: "http://example.test", APIKey: "test-key"}
 }
 
 func intPtr(value int) *int { return &value }

@@ -23,6 +23,7 @@ import (
 	"qingzhi/enterprise-api/internal/monitor"
 	"qingzhi/enterprise-api/internal/response"
 	"qingzhi/enterprise-api/internal/security"
+	"qingzhi/enterprise-api/internal/settings"
 )
 
 // Dependencies are the runtime collaborators of the HTTP server.
@@ -36,6 +37,7 @@ type Dependencies struct {
 	Models    *modelcfg.Service
 	Dict      *dict.Service
 	Security  *security.Service
+	Settings  *settings.Service
 	Monitor   *monitor.Service
 	Tokens    *auth.TokenIssuer
 }
@@ -124,6 +126,10 @@ func New(deps Dependencies) *Server {
 	handler.ModelConfig{
 		Logger:  deps.Logger,
 		Service: deps.Models,
+	}.Register(protected, enforce)
+	handler.Settings{
+		Logger:  deps.Logger,
+		Service: deps.Settings,
 	}.Register(protected, enforce)
 
 	engine.NoRoute(func(c *gin.Context) {

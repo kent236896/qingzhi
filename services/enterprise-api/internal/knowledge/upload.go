@@ -28,8 +28,8 @@ func (s *Service) Upload(ctx context.Context, actor Actor, baseID string, files 
 	if err != nil {
 		return nil, err
 	}
-	if s.remote == nil {
-		return nil, notReady("知识库服务未配置")
+	if !s.remoteReady() {
+		return nil, notReady("请先在系统配置中填写 WeKnora 地址和 API Key")
 	}
 	if len(files) > s.cfg.MaxFiles {
 		return nil, invalid("一次上传的文件过多")
@@ -155,7 +155,7 @@ func (s *Service) ListFiles(ctx context.Context, actor Actor, baseID string, syn
 }
 
 func (s *Service) syncFiles(ctx context.Context, item Base) error {
-	if s.remote == nil || item.RemoteID == "" {
+	if !s.remoteReady() || item.RemoteID == "" {
 		return nil
 	}
 	remoteFiles, err := s.remote.ListKnowledge(ctx, item.RemoteID)
@@ -235,7 +235,7 @@ func (s *Service) ReparseFiles(ctx context.Context, actor Actor, baseID string, 
 			remoteIDs = append(remoteIDs, file.RemoteID)
 		}
 	}
-	if s.remote == nil || len(remoteIDs) == 0 {
+	if !s.remoteReady() || len(remoteIDs) == 0 {
 		return invalid("没有可重新解析的文件")
 	}
 	if len(remoteIDs) == 1 {

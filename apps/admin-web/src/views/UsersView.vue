@@ -395,8 +395,8 @@ onMounted(() => {
     <t-card :bordered="false">
       <div class="toolbar">
         <t-input v-model="keyword" clearable placeholder="搜索用户名或显示名" @enter="search" />
-        <t-button theme="default" @click="search">查询</t-button>
-        <t-button v-if="canCreate" theme="primary" @click="openCreate">新建账号</t-button>
+        <t-button theme="default" variant="outline" @click="search">查询</t-button>
+        <t-button v-if="canCreate" theme="primary" variant="base" @click="openCreate">新建账号</t-button>
       </div>
       <PageStatus :status="pageStatus" :error-message="errorMessage" @retry="load">
         <t-table row-key="id" :data="items" :columns="columns" hover>
@@ -412,8 +412,8 @@ onMounted(() => {
             </t-tag>
           </template>
           <template #actions="{ row }">
-            <t-button v-if="canUpdate" theme="primary" variant="text" @click="openEdit(row)">编辑</t-button>
-            <t-button theme="primary" variant="text" @click="openDetail(row)">组织任职</t-button>
+            <t-button v-if="canUpdate" variant="text" @click="openEdit(row)">编辑</t-button>
+            <t-button variant="text" @click="openDetail(row)">组织任职</t-button>
           </template>
         </t-table>
         <t-pagination
@@ -485,7 +485,7 @@ onMounted(() => {
           <span>{{ detail.nickname }}（{{ detail.username }}）</span>
         </p>
         <div class="toolbar">
-          <t-button v-if="canCreate" theme="primary" @click="openJoin">添加组织任职</t-button>
+          <t-button v-if="canCreate" theme="primary" variant="base" @click="openJoin">添加组织任职</t-button>
         </div>
         <p class="hint">任职保存在当前登录租户的组织树中。其他租户已有任职会保留，但不能在本次会话里修改。</p>
         <div v-if="detail.memberships.length === 0" class="page-status">
@@ -517,7 +517,6 @@ onMounted(() => {
           <div class="toolbar">
             <t-button
               v-if="canUpdate && canManageMembership(membership)"
-              theme="primary"
               variant="text"
               @click="openAdjust(membership)"
             >
@@ -528,7 +527,6 @@ onMounted(() => {
           <p class="hint">岗位：{{ (assignedPosts[membership.tenant_id] ?? []).join('、') || '未任职' }}</p>
           <t-button
             v-if="canUpdate && canManageMembership(membership)"
-            theme="primary"
             variant="text"
             @click="openPosts(membership)"
           >

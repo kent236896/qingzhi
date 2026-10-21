@@ -51,10 +51,31 @@ func NewService(store Store, remote Remote, cfg config.WeKnoraConfig, log *slog.
 }
 
 func (s *Service) ready() error {
-	if s == nil || s.remote == nil || !s.cfg.Enabled() {
-		return notReady("模型服务未配置")
+	if s == nil || s.remote == nil || !s.enabled() {
+		return notReady("请先在系统配置中填写 WeKnora 地址和 API Key")
 	}
 	return nil
+}
+
+// SetConnection switches later model requests to a page-configured WeKnora connection.
+func (s *Service) SetConnection(baseURL, apiKey string) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	s.cfg.BaseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	s.cfg.APIKey = strings.TrimSpace(apiKey)
+	s.cache = map[string]cacheEntry{}
+	s.mu.Unlock()
+}
+
+func (s *Service) enabled() bool {
+	if s == nil {
+		return false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.cfg.Enabled()
 }
 
 // Allow reports whether this user may run another test or debug call.
@@ -538,7 +559,7 @@ func (s *Service) ListBindings(ctx context.Context) ([]Binding, error) {
 		byRole[row.Role] = row
 	}
 	names := map[string]Model{}
-	if s.remote != nil && s.cfg.Enabled() {
+	if s.remote != nil && s.enabled() {
 		if items, listErr := s.remote.ListModels(ctx); listErr == nil {
 			for _, item := range items {
 				names[item.ID] = item
@@ -589,32 +610,6 @@ func (s *Service) SaveBinding(ctx context.Context, role, modelID, updatedBy stri
 	}
 	s.logAction("model binding updated", modelID)
 	return item, nil
-}
-
-// SeedFallback inserts env model ids only when a role has no row yet.
-func (s *Service) SeedFallback(ctx context.Context) error {
-	if s.store == nil {
-		return nil
-	}
-	seeds := map[string]string{
-		RoleEmbedding: s.cfg.EmbeddingModelID, RoleSummary: s.cfg.SummaryModelID, RoleWikiSynthesis: s.cfg.WikiSynthesisModelID,
-	}
-	for role, modelID := range seeds {
-		if strings.TrimSpace(modelID) == "" {
-			continue
-		}
-		_, err := s.store.Find(ctx, role)
-		if err == nil {
-			continue
-		}
-		if !errors.Is(err, ErrNotFound) {
-			return err
-		}
-		if upsertErr := s.store.Upsert(ctx, Binding{Role: role, ModelID: modelID, UpdatedBy: "system", UpdatedAt: s.now().UTC()}); upsertErr != nil {
-			return upsertErr
-		}
-	}
-	return nil
 }
 
 // KnowledgeModels resolves the models used when creating a knowledge base.

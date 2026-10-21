@@ -8,7 +8,7 @@ import SecurityPolicyView from '@/views/SecurityPolicyView.vue'
 import HomeView from '@/views/HomeView.vue'
 import KnowledgeDetailView from '@/views/KnowledgeDetailView.vue'
 import KnowledgeView from '@/views/KnowledgeView.vue'
-import ModelsView from '@/views/ModelsView.vue'
+import SettingsView from '@/views/SettingsView.vue'
 import LoginView from '@/views/LoginView.vue'
 import MonitorView from '@/views/MonitorView.vue'
 import NotFoundView from '@/views/NotFoundView.vue'
@@ -84,9 +84,13 @@ export const router = createRouter({
         },
         {
           path: 'models',
-          name: 'models',
-          component: ModelsView,
-          meta: { title: '模型配置', breadcrumb: ['模型配置'] },
+          redirect: { name: 'settings' },
+        },
+        {
+          path: 'settings',
+          name: 'settings',
+          component: SettingsView,
+          meta: { title: '系统配置', breadcrumb: ['系统管理', '系统配置'] },
         },
         {
           path: 'knowledge/:id',

@@ -172,7 +172,7 @@ watch(
       <p v-if="menuStatus === 'loading'" class="menu-state">正在加载菜单</p>
       <p v-else-if="menuStatus === 'error'" class="menu-state">
         菜单加载失败
-        <t-button theme="primary" variant="text" @click="loadMenus">重试</t-button>
+        <t-button variant="text" @click="loadMenus">重试</t-button>
       </p>
       <t-menu
         v-else

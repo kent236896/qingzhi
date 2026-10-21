@@ -345,7 +345,7 @@ onMounted(() => {
   <div class="menus-page">
     <div class="menus-toolbar">
       <div class="menus-toolbar__actions">
-        <t-button v-if="canCreate" theme="primary" @click="openCreate">
+        <t-button v-if="canCreate" theme="primary" variant="base" @click="openCreate">
           <template #icon><AddIcon /></template>
           新建菜单
         </t-button>
@@ -353,11 +353,12 @@ onMounted(() => {
           <template #icon><EditIcon /></template>
           编辑
         </t-button>
+        <t-divider v-if="canDelete" layout="vertical" />
         <t-button v-if="canDelete" theme="danger" variant="outline" :disabled="!selected" @click="removeSelected">
           <template #icon><DeleteIcon /></template>
           删除
         </t-button>
-        <t-button theme="default" variant="text" @click="load">
+        <t-button variant="text" @click="load">
           <template #icon><RefreshIcon /></template>
           刷新
         </t-button>
@@ -375,9 +376,9 @@ onMounted(() => {
         <t-card class="menus-panel menus-panel--tree" title="菜单树" :bordered="false">
           <template #actions>
             <div class="tree-actions">
-              <t-button size="small" variant="text" @click="expandDirectories">仅目录</t-button>
-              <t-button size="small" variant="text" @click="expandAll">全部展开</t-button>
-              <t-button size="small" variant="text" @click="collapseAll">全部折叠</t-button>
+              <t-button variant="text" @click="expandDirectories">仅目录</t-button>
+              <t-button variant="text" @click="expandAll">全部展开</t-button>
+              <t-button variant="text" @click="collapseAll">全部折叠</t-button>
             </div>
           </template>
 
@@ -498,13 +499,13 @@ onMounted(() => {
             </div>
 
             <div class="detail__actions">
-              <t-button v-if="canUpdate" theme="primary" variant="outline" @click="openEdit">
-                <template #icon><EditIcon /></template>
-                编辑此节点
-              </t-button>
-              <t-button v-if="canCreate" theme="default" variant="outline" @click="openCreate">
+              <t-button v-if="canCreate" theme="primary" variant="outline" @click="openCreate">
                 <template #icon><AddIcon /></template>
                 在此新建
+              </t-button>
+              <t-button v-if="canUpdate" theme="default" variant="outline" @click="openEdit">
+                <template #icon><EditIcon /></template>
+                编辑此节点
               </t-button>
             </div>
           </div>

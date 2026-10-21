@@ -6,6 +6,7 @@ import { router } from './router'
 import 'tdesign-vue-next/es/style/index.css'
 import './styles/tokens.css'
 import './styles/global.css'
+import './styles/button.css'
 
 const app = createApp(App)
 app.use(createPinia())

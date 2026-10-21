@@ -116,13 +116,10 @@ type MonitorConfig struct {
 // WeKnoraConfig connects this API to a self-hosted WeKnora service.
 // BaseURL is host and port only. The API key never leaves the server.
 type WeKnoraConfig struct {
-	BaseURL              string
-	APIKey               string
-	Timeout              time.Duration
-	EmbeddingModelID     string
-	SummaryModelID       string
-	WikiSynthesisModelID string
-	OllamaEnabled        bool
+	BaseURL       string
+	APIKey        string
+	Timeout       time.Duration
+	OllamaEnabled bool
 }
 
 // Secrets returns values that must be redacted.
@@ -278,9 +275,6 @@ func Load() (Config, error) {
 	if cfg.WeKnora.Timeout, err = parseSecondsOrDuration("WEKNORA_TIMEOUT", env.getenv("WEKNORA_TIMEOUT", ""), 30); err != nil {
 		return Config{}, err
 	}
-	cfg.WeKnora.EmbeddingModelID = strings.TrimSpace(env.getenv("WEKNORA_EMBEDDING_MODEL_ID", ""))
-	cfg.WeKnora.SummaryModelID = strings.TrimSpace(env.getenv("WEKNORA_SUMMARY_MODEL_ID", ""))
-	cfg.WeKnora.WikiSynthesisModelID = strings.TrimSpace(env.getenv("WEKNORA_WIKI_SYNTHESIS_MODEL_ID", ""))
 	cfg.WeKnora.OllamaEnabled, err = parseBool("WEKNORA_OLLAMA_ENABLED", env.getenv("WEKNORA_OLLAMA_ENABLED", "false"))
 	if err != nil {
 		return Config{}, err

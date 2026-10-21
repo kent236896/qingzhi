@@ -55,7 +55,7 @@ onMounted(() => {
     <t-card :bordered="false">
       <div class="toolbar">
         <t-input v-model="keyword" clearable placeholder="搜索操作人、角色或摘要" @enter="search" />
-        <t-button theme="default" @click="search">查询</t-button>
+        <t-button theme="primary" variant="base" @click="search">查询</t-button>
       </div>
       <PageStatus :status="pageStatus" :error-message="errorMessage" description="还没有权限变更" @retry="load">
         <t-table row-key="id" :data="items" :columns="columns" hover>

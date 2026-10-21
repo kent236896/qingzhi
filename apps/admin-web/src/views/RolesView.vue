@@ -327,8 +327,8 @@ onMounted(() => {
     <t-card :bordered="false">
       <div class="toolbar">
         <t-input v-model="keyword" clearable placeholder="搜索名称或权限字符串" @enter="search" />
-        <t-button theme="default" @click="search">查询</t-button>
-        <t-button v-if="canCreate" theme="primary" :disabled="!tenantId" @click="openCreate">新建角色</t-button>
+        <t-button theme="default" variant="outline" @click="search">查询</t-button>
+        <t-button v-if="canCreate" theme="primary" variant="base" :disabled="!tenantId" @click="openCreate">新建角色</t-button>
       </div>
       <PageStatus :status="pageStatus" :error-message="errorMessage" @retry="bootstrap">
         <t-table row-key="id" :data="items" :columns="columns" hover>
@@ -341,18 +341,17 @@ onMounted(() => {
             </t-tag>
           </template>
           <template #actions="{ row }">
-            <t-button v-if="canUpdate" theme="primary" variant="text" @click="openEdit(row)">编辑</t-button>
-            <t-button v-if="canUpdate" theme="primary" variant="text" @click="openMenus(row)">菜单</t-button>
+            <t-button v-if="canUpdate" variant="text" @click="openEdit(row)">编辑</t-button>
+            <t-button v-if="canUpdate" variant="text" @click="openMenus(row)">菜单</t-button>
             <t-button
               v-if="canUpdate"
-              theme="primary"
               variant="text"
               :disabled="row.data_scope !== 2"
               @click="openDepts(row)"
             >
               部门
             </t-button>
-            <t-button v-if="canUpdate" theme="primary" variant="text" @click="openUsers(row)">用户</t-button>
+            <t-button v-if="canUpdate" variant="text" @click="openUsers(row)">用户</t-button>
             <t-button v-if="canDelete" theme="danger" variant="text" @click="remove(row)">删除</t-button>
           </template>
         </t-table>

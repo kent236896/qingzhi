@@ -5,10 +5,10 @@
   --qz-font-lg: 16px;
   --qz-font-xl: 20px;
 
-  --qz-brand: #4f46e5;
-  --qz-brand-hover: #4338ca;
-  --qz-brand-active: #3730a3;
-  --qz-brand-light: #eef2ff;
+  --qz-brand: #534ab7;
+  --qz-brand-hover: #3c3489;
+  --qz-brand-active: #3c3489;
+  --qz-brand-light: rgba(83, 74, 183, 0.08);
   --qz-brand-disabled: #c7d2fe;
   --qz-bg: #f8fafc;
   --qz-surface: #ffffff;
@@ -23,10 +23,21 @@
   --qz-success-light: #f0fdf4;
   --qz-warning: #d97706;
   --qz-warning-light: #fffbeb;
-  --qz-danger: #dc2626;
-  --qz-danger-hover: #b91c1c;
-  --qz-danger-light: #fef2f2;
-  --qz-focus: #4f46e5;
+  --qz-danger: #d92d2d;
+  --qz-danger-hover: #d92d2d;
+  --qz-danger-light: rgba(217, 45, 45, 0.08);
+  --qz-focus: #534ab7;
+
+  /* Wiki 图谱 page_type 色板（对齐 WeKnora；暗色主题可覆盖这些变量） */
+  --qz-wiki-summary: #0052d9;
+  --qz-wiki-entity: #2ba471;
+  --qz-wiki-concept: #e37318;
+  --qz-wiki-synthesis: #0594fa;
+  --qz-wiki-comparison: #d54941;
+  --qz-wiki-index: #8c8c8c;
+  --qz-wiki-unknown: #94a3b8;
+  --qz-wiki-edge: #aeb5c0;
+  --qz-wiki-selection: #0052d9;
 
   --qz-aside-width: 232px;
   --qz-aside-collapsed: 64px;

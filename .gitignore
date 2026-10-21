@@ -1,6 +1,8 @@
 .env
 .env.local
 apps/admin-web/.env.local
+.tmp-wiki-samples/
+.tmp-weknora-src/
 
 node_modules/
 dist/

@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
 import { DialogPlugin } from 'tdesign-vue-next'
 import PageStatus from '@/components/PageStatus.vue'
 import {
@@ -10,18 +9,15 @@ import {
   debugModel,
   deleteModel,
   downloadOllama,
-  listBindings,
   listModels,
   listProviders,
   ollamaModels,
   ollamaProgress,
   ollamaStatus,
   resolveProvider,
-  saveBinding,
   testModel,
   updateModel,
   type AiModel,
-  type Binding,
   type BindingRole,
   type CatalogModel,
   type ModelType,
@@ -35,16 +31,13 @@ import { feedback } from '@/utils/feedback'
 import { useAuthStore } from '@/stores/auth'
 
 const auth = useAuthStore()
-const route = useRoute()
-const router = useRouter()
+const emit = defineEmits<{ changed: [] }>()
+const props = defineProps<{ hideList?: boolean }>()
 const canManage = computed(() => auth.hasPermission('model:manage'))
 const pageStatus = ref<'loading' | 'error' | 'ready'>('loading')
-const tab = ref(route.query.tab === 'bindings' ? 'bindings' : 'list')
 const type = ref<ModelType>('chat')
 const keyword = ref('')
 const items = ref<AiModel[]>([])
-const bindings = ref<Binding[]>([])
-const bindingDraft = ref<Record<string, string>>({})
 
 const types: { value: ModelType; label: string }[] = [
   { value: 'chat', label: '对话模型' },
@@ -143,25 +136,22 @@ function countOf(value: ModelType) {
 async function load() {
   pageStatus.value = items.value.length ? 'ready' : 'loading'
   try {
-    const [modelResponse, bindingResponse] = await Promise.all([listModels(), listBindings()])
+    const modelResponse = await listModels()
     items.value = modelResponse.data ?? []
-    bindings.value = bindingResponse.data ?? []
-    const draft: Record<string, string> = {}
-    for (const item of bindings.value) draft[item.role] = item.model_id
-    bindingDraft.value = draft
     pageStatus.value = 'ready'
+    emit('changed')
   } catch {
     if (!items.value.length) pageStatus.value = 'error'
   }
 }
 
-async function openCreate() {
+async function openCreate(modelType?: ModelType) {
   editing.value = false
   tested.value = false
   formError.value = ''
   testMessage.value = ''
   resolvePreview.value = null
-  form.value = { ...emptyForm(), type: type.value }
+  form.value = { ...emptyForm(), type: modelType ?? type.value }
   drawerVisible.value = true
   await loadProviders()
 }
@@ -489,17 +479,6 @@ function remove(row: AiModel) {
   })
 }
 
-async function saveRole(role: BindingRole) {
-  try {
-    const response = await saveBinding(role, bindingDraft.value[role])
-    if (response.data.warning) feedback.warning(response.data.warning)
-    else feedback.success('默认模型已保存')
-    await load()
-  } catch (error) {
-    feedback.error(error instanceof ApiError ? error.message : '保存失败')
-  }
-}
-
 async function startDownload() {
   const name = form.value.name.trim()
   if (!name) return
@@ -526,7 +505,7 @@ function credentialText(key: string, fallback: string) {
   for (const item of labels) {
     const name = String(item.key ?? item.field ?? '')
     if (name === key || name.includes(key)) {
-      return String(item.label ?? item.labels && (item.labels as Record<string, string>)['zh-CN'] ?? fallback)
+        return String(item.label ?? (item.labels && (item.labels as Record<string, string>)['zh-CN']) ?? fallback)
     }
   }
   return fallback
@@ -554,10 +533,6 @@ function numberOrUndefined(value: unknown) {
   return Number.isFinite(number) && number > 0 ? number : undefined
 }
 
-function modelsFor(modelType: ModelType) {
-  return items.value.filter((item) => item.type === modelType)
-}
-
 function sourceText(source: string) {
   if (source === 'local') return '本地'
   if (source === 'remote') return '远程'
@@ -568,33 +543,32 @@ watch(() => form.value.type, () => {
   if (drawerVisible.value) void loadProviders()
 })
 watch(() => [form.value.provider, form.value.name, form.value.base_url], scheduleResolve)
-watch(tab, (value) => {
-  void router.replace({ query: value === 'bindings' ? { tab: 'bindings' } : {} })
-})
 
-onMounted(load)
+onMounted(() => {
+  if (!props.hideList) load()
+})
 onUnmounted(() => {
   window.clearTimeout(resolveTimer)
   window.clearInterval(progressTimer)
 })
+defineExpose({ openCreate, openEdit, remove })
 </script>
 
 <template>
   <div>
+    <template v-if="!props.hideList">
     <PageStatus v-if="pageStatus !== 'ready'" :status="pageStatus" @retry="load" />
-    <t-card v-else :bordered="false">
-      <t-tabs v-model="tab">
-        <t-tab-panel value="list" label="模型列表">
-          <div class="toolbar">
+    <t-card v-else :bordered="false" title="模型">
+      <div class="toolbar">
             <t-radio-group v-model="type" variant="default-filled">
               <t-radio-button v-for="item in types" :key="item.value" :value="item.value">{{ item.label }} {{ countOf(item.value) }}</t-radio-button>
             </t-radio-group>
             <t-input v-model="keyword" placeholder="搜索模型名或显示名" clearable style="width: 240px" />
-            <t-button v-if="canManage" theme="primary" @click="openCreate">添加模型</t-button>
+            <t-button v-if="canManage" theme="primary" variant="base" @click="openCreate">添加模型</t-button>
           </div>
           <div v-if="!filtered.length" class="empty">
             <p>还没有{{ types.find((item) => item.value === type)?.label }}</p>
-            <t-button v-if="canManage" theme="primary" @click="openCreate">添加第一个模型</t-button>
+            <t-button v-if="canManage" theme="primary" variant="base" @click="openCreate">添加第一个模型</t-button>
           </div>
           <t-table v-else row-key="id" :data="filtered" :columns="[
             { colKey: 'display_name', title: '显示名' },
@@ -612,29 +586,15 @@ onUnmounted(() => {
             </template>
             <template #secret="{ row }">{{ row.credentials?.api_key?.configured ? '已配置' : '未配置' }}</template>
             <template #actions="{ row }">
-              <t-button theme="primary" variant="text" :disabled="row.is_builtin || !canManage" @click="openEdit(row)">编辑</t-button>
+              <t-button variant="text" :disabled="row.is_builtin || !canManage" @click="openEdit(row)">编辑</t-button>
               <t-button variant="text" :disabled="row.is_builtin || !canManage" @click="openCopy(row)">复制</t-button>
               <t-button variant="text" :disabled="!canManage" @click="runTestRow(row)">测试</t-button>
               <t-button variant="text" :disabled="!canManage" @click="openDebug(row)">调试</t-button>
               <t-button theme="danger" variant="text" :disabled="row.is_builtin || !canManage" @click="remove(row)">删除</t-button>
             </template>
           </t-table>
-        </t-tab-panel>
-        <t-tab-panel value="bindings" label="默认模型">
-          <div v-for="role in roles" :key="role.value" class="binding">
-            <div>
-              <strong>{{ role.label }}</strong>
-              <p>{{ role.hint }}</p>
-            </div>
-            <t-select v-model="bindingDraft[role.value]" clearable placeholder="选择模型" style="width: 320px" :disabled="!canManage">
-              <t-option v-for="model in modelsFor(role.type)" :key="model.id" :value="model.id" :label="model.display_name || model.name" />
-            </t-select>
-            <t-button v-if="canManage" theme="primary" @click="saveRole(role.value)">保存</t-button>
-          </div>
-          <p class="hint">更换向量模型只影响之后新建的知识库，已有文件的知识库不能更换向量模型。</p>
-        </t-tab-panel>
-      </t-tabs>
     </t-card>
+    </template>
 
     <t-drawer v-model:visible="drawerVisible" :header="editing ? '编辑模型' : '添加模型'" size="640px" :footer="false">
       <t-alert v-if="formError" theme="error" :message="formError" class="gap" />
@@ -666,7 +626,7 @@ onUnmounted(() => {
             <t-select v-model="form.name" filterable creatable placeholder="选择已安装模型">
               <t-option v-for="item in installed" :key="item.name" :value="item.name" :label="item.name" />
             </t-select>
-            <t-button variant="outline" @click="startDownload">下载模型</t-button>
+            <t-button theme="default" variant="outline" @click="startDownload">下载模型</t-button>
             <t-progress v-if="downloadTask" :percentage="Math.round(downloadTask.progress)" />
           </t-form-item>
         </template>
@@ -684,7 +644,7 @@ onUnmounted(() => {
         </t-form-item>
         <t-form-item v-if="form.type === 'embedding'" label="维度">
           <t-input-number v-model="form.dimension" :min="1" />
-          <t-button variant="outline" :disabled="!canManage" @click="runTest">测试并检测维度</t-button>
+          <t-button theme="default" variant="outline" :disabled="!canManage" @click="runTest">测试并检测维度</t-button>
           <p class="hint">更换已被知识库使用的向量模型前，请确认维度一致。已有文件的知识库不能更换向量模型。</p>
         </t-form-item>
         <t-collapse>
@@ -703,8 +663,8 @@ onUnmounted(() => {
         </div>
         <p v-if="testMessage" class="hint">{{ testMessage }}</p>
         <div class="actions">
-          <t-button v-if="canManage" variant="outline" @click="runTest">测试连接</t-button>
-          <t-button v-if="canManage" theme="primary" :loading="saving" @click="save">保存</t-button>
+          <t-button v-if="canManage" theme="default" variant="outline" @click="runTest">测试连接</t-button>
+          <t-button v-if="canManage" theme="primary" variant="base" :loading="saving" @click="save">保存</t-button>
         </div>
       </t-form>
     </t-drawer>
@@ -721,7 +681,7 @@ onUnmounted(() => {
           <t-checkbox v-model="debugThinking">开启思考</t-checkbox>
         </t-collapse-panel>
       </t-collapse>
-      <t-button theme="primary" @click="submitDebug">提交</t-button>
+      <t-button theme="primary" variant="base" @click="submitDebug">提交</t-button>
       <pre v-if="debugResult" class="preview">{{ JSON.stringify(debugResult, null, 2) }}</pre>
     </t-dialog>
     <t-dialog v-model:visible="conflictVisible" header="模型仍被占用" :footer="false">
@@ -732,16 +692,14 @@ onUnmounted(() => {
         <li v-for="item in conflict?.agents ?? []" :key="item.id">智能体 {{ item.name }}（{{ item.bindings.join('、') }}）</li>
       </ul>
       <p v-if="conflict?.long_term_memory?.bindings?.length">长期记忆：{{ conflict.long_term_memory.bindings.join('、') }}</p>
-      <p>请先在这些位置更换模型。</p>
-      <t-button v-if="conflict?.local_roles?.length" theme="primary" variant="text" @click="tab = 'bindings'; conflictVisible = false">前往默认模型</t-button>
+      <p>请先在上方的默认模型中更换后再删除。</p>
     </t-dialog>
   </div>
 </template>
 
 <style scoped>
-.toolbar, .actions, .pair, .binding { display: flex; gap: 12px; align-items: center; }
+.toolbar, .actions, .pair { display: flex; gap: 8px; align-items: center; }
 .toolbar { margin: 16px 0; flex-wrap: wrap; }
-.binding { justify-content: space-between; padding: 12px 0; border-bottom: 1px solid var(--td-component-border); }
 .binding p, .hint, .preview { color: var(--qz-text-secondary); }
 .empty { padding: 48px 0; text-align: center; }
 .gap { margin: 12px 0; }

@@ -150,13 +150,13 @@ onMounted(load)
           <t-option value="position" label="岗位" />
           <t-option value="role" label="角色" />
         </t-select>
-        <t-button theme="primary" @click="openCreate">新建知识库</t-button>
+        <t-button theme="primary" variant="base" @click="openCreate">新建知识库</t-button>
       </div>
       <t-table row-key="id" :data="items" :columns="columns" :pagination="{ current: page, pageSize: 20, total }" @page-change="(info: { current: number }) => { page = info.current; load() }">
         <template #scope_type="{ row }">{{ scopeLabel[row.scope_type] ?? row.scope_type }}</template>
         <template #wiki_enabled="{ row }">{{ row.wiki_enabled ? '已启用' : '未启用' }}</template>
         <template #actions="{ row }">
-          <t-button theme="primary" variant="text" @click="router.push({ name: 'knowledge-detail', params: { id: row.id } })">打开</t-button>
+          <t-button variant="text" @click="router.push({ name: 'knowledge-detail', params: { id: row.id } })">打开</t-button>
           <t-button v-if="canManage || row.scope_type === 'personal'" theme="danger" variant="text" @click="remove(row)">删除</t-button>
         </template>
       </t-table>
@@ -189,7 +189,7 @@ onMounted(load)
           <p class="hint">将使用默认模型：向量 {{ modelName(options.models?.embedding) }}，摘要 {{ modelName(options.models?.summary) }}。</p>
           <p v-if="form.wiki_enabled && !options.models?.wiki_synthesis?.id" class="hint">
             尚未绑定 Wiki 生成模型，不能提交。
-            <router-link :to="{ name: 'models', query: { tab: 'bindings' } }">前往默认模型</router-link>
+            <router-link :to="{ name: 'settings' }">前往系统配置</router-link>
           </p>
         </t-form-item>
       </t-form>

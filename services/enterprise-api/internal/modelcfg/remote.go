@@ -245,7 +245,7 @@ func (r *HTTPRemote) OllamaProgress(ctx context.Context, taskID string) (OllamaT
 
 func (r *HTTPRemote) data(ctx context.Context, method, path string, body any) (json.RawMessage, error) {
 	if r == nil || r.client == nil {
-		return nil, notReady("模型服务未配置")
+		return nil, notReady("请先在系统配置中填写 WeKnora 地址和 API Key")
 	}
 	status, payload, err := r.client.Exchange(ctx, method, path, body)
 	if err != nil {

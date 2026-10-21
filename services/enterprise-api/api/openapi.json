@@ -26,9 +26,14 @@
     { "name": "users", "description": "全局账号" },
     { "name": "members", "description": "租户成员与部门任职" },
     { "name": "knowledge", "description": "知识库、文件与 Wiki" },
-    { "name": "models", "description": "WeKnora 模型配置与场景默认绑定" }
+    { "name": "models", "description": "WeKnora 模型配置与场景默认绑定" },
+    { "name": "settings", "description": "系统配置中的 WeKnora 连接" }
   ],
   "paths": {
+    "/api/v1/system/settings": {
+      "get": { "tags": ["settings"], "summary": "读取系统配置", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "地址和密钥是否已配置，不返回密钥明文" } } },
+      "put": { "tags": ["settings"], "summary": "更新系统配置", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "已保存。空密钥表示保持原值" } } }
+    },
     "/api/v1/weknora/model-providers": {
       "get": { "tags": ["models"], "summary": "厂商目录", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "按类型返回厂商，图标仅在 icons=1 时返回" } } }
     },

@@ -363,11 +363,12 @@ onMounted(() => {
       <div class="org-panel__bar">
         <h3>组织树</h3>
         <div class="toolbar">
-          <t-button v-if="canCreate" theme="default" @click="openCreate('sibling')">新建同级</t-button>
-          <t-button v-if="canCreate" theme="primary" :disabled="!selected" @click="openCreate('child')">
+          <t-button v-if="canCreate" theme="primary" variant="outline" @click="openCreate('sibling')">新建同级</t-button>
+          <t-button v-if="canCreate" theme="primary" variant="base" :disabled="!selected" @click="openCreate('child')">
             新建下级
           </t-button>
-          <t-button v-if="canUpdate" theme="default" :disabled="!selected" @click="openEdit">编辑</t-button>
+          <t-button v-if="canUpdate" theme="default" variant="outline" :disabled="!selected" @click="openEdit">编辑</t-button>
+          <t-divider v-if="canDelete" layout="vertical" />
           <t-button
             v-if="canDelete"
             theme="danger"
