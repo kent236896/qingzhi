@@ -1,0 +1,459 @@
+﻿{
+    "data":  [
+                 {
+                     "asr_config":  {
+                                        "enabled":  false,
+                                        "language":  "",
+                                        "model_id":  ""
+                                    },
+                     "auto_tag_config":  null,
+                     "capabilities":  {
+                                          "faq":  false,
+                                          "graph":  false,
+                                          "keyword":  true,
+                                          "vector":  true,
+                                          "wiki":  true
+                                      },
+                     "chunk_count":  0,
+                     "chunking_config":  {
+                                             "child_chunk_size":  384,
+                                             "chunk_overlap":  80,
+                                             "chunk_size":  512,
+                                             "enable_parent_child":  true,
+                                             "parent_chunk_size":  4096,
+                                             "separators":  [
+                                                                "\n\n",
+                                                                "\n",
+                                                                "。",
+                                                                "！",
+                                                                "？",
+                                                                ";",
+                                                                "；"
+                                                            ],
+                                             "strategy":  "auto"
+                                         },
+                     "created_at":  "2026-10-20T16:10:24.620548+08:00",
+                     "creator_id":  "2dc989f2-4b50-49d6-a718-e0c88f0e0f57",
+                     "creator_name":  "kent",
+                     "deleted_at":  null,
+                     "description":  "",
+                     "embedding_model_id":  "9d3e18ac-32e2-471f-9c00-9600259f6240",
+                     "extract_config":  null,
+                     "faq_config":  null,
+                     "id":  "d08596e9-a0c1-42be-8bb6-0fd7bf0bf4e1",
+                     "image_processing_config":  {
+                                                     "model_id":  ""
+                                                 },
+                     "indexing_strategy":  {
+                                               "graph_enabled":  false,
+                                               "keyword_enabled":  true,
+                                               "vector_enabled":  true,
+                                               "wiki_enabled":  true
+                                           },
+                     "is_pinned":  false,
+                     "is_processing":  false,
+                     "is_temporary":  false,
+                     "knowledge_count":  1,
+                     "name":  "测试Wiki",
+                     "pinned_at":  null,
+                     "processing_count":  0,
+                     "profile_config":  null,
+                     "question_generation_config":  null,
+                     "share_count":  0,
+                     "storage_backend_id":  "8cc3dd17-232d-402d-95c4-39b0c729a266",
+                     "storage_config":  {
+                                            "app_id":  "",
+                                            "bucket_name":  "",
+                                            "path_prefix":  "",
+                                            "provider":  "",
+                                            "region":  "",
+                                            "secret_id":  "",
+                                            "secret_key":  ""
+                                        },
+                     "storage_provider_config":  {
+                                                     "provider":  "local"
+                                                 },
+                     "summary_model_id":  "c239007c-f2d1-48fd-9987-8d8415739a28",
+                     "tenant_id":  10000,
+                     "type":  "document",
+                     "updated_at":  "2026-10-20T16:10:24.620549+08:00",
+                     "vector_store_engine_type":  "postgres",
+                     "vector_store_name":  "System default",
+                     "vector_store_source":  "env",
+                     "vector_store_status":  "available",
+                     "vlm_config":  {
+                                        "api_key":  "",
+                                        "base_url":  "",
+                                        "enabled":  false,
+                                        "interface_type":  "",
+                                        "model_id":  "",
+                                        "model_name":  ""
+                                    },
+                     "wiki_config":  {
+                                         "extraction_granularity":  "standard",
+                                         "max_pages_per_ingest":  0,
+                                         "synthesis_model_id":  "c239007c-f2d1-48fd-9987-8d8415739a28"
+                                     }
+                 },
+                 {
+                     "asr_config":  {
+                                        "enabled":  false,
+                                        "language":  "",
+                                        "model_id":  ""
+                                    },
+                     "auto_tag_config":  null,
+                     "capabilities":  {
+                                          "faq":  false,
+                                          "graph":  false,
+                                          "keyword":  true,
+                                          "vector":  true,
+                                          "wiki":  false
+                                      },
+                     "chunk_count":  0,
+                     "chunking_config":  {
+                                             "child_chunk_size":  384,
+                                             "chunk_overlap":  80,
+                                             "chunk_size":  512,
+                                             "enable_parent_child":  true,
+                                             "parent_chunk_size":  4096,
+                                             "separators":  [
+                                                                "\n\n",
+                                                                "\n",
+                                                                "。",
+                                                                "！",
+                                                                "？",
+                                                                ";",
+                                                                "；"
+                                                            ],
+                                             "strategy":  "auto"
+                                         },
+                     "created_at":  "2026-10-16T18:44:22.869001+08:00",
+                     "creator_id":  "2dc989f2-4b50-49d6-a718-e0c88f0e0f57",
+                     "creator_name":  "kent",
+                     "deleted_at":  null,
+                     "description":  "",
+                     "embedding_model_id":  "9d3e18ac-32e2-471f-9c00-9600259f6240",
+                     "extract_config":  null,
+                     "faq_config":  null,
+                     "id":  "e8e946fe-4258-449a-bbcd-697f85916b6c",
+                     "image_processing_config":  {
+                                                     "model_id":  ""
+                                                 },
+                     "indexing_strategy":  {
+                                               "graph_enabled":  false,
+                                               "keyword_enabled":  true,
+                                               "vector_enabled":  true,
+                                               "wiki_enabled":  false
+                                           },
+                     "is_pinned":  false,
+                     "is_processing":  false,
+                     "is_temporary":  false,
+                     "knowledge_count":  3,
+                     "name":  "验证知识库",
+                     "pinned_at":  null,
+                     "processing_count":  0,
+                     "profile_config":  null,
+                     "question_generation_config":  null,
+                     "share_count":  0,
+                     "storage_backend_id":  "8cc3dd17-232d-402d-95c4-39b0c729a266",
+                     "storage_config":  {
+                                            "app_id":  "",
+                                            "bucket_name":  "",
+                                            "path_prefix":  "",
+                                            "provider":  "",
+                                            "region":  "",
+                                            "secret_id":  "",
+                                            "secret_key":  ""
+                                        },
+                     "storage_provider_config":  {
+                                                     "provider":  "local"
+                                                 },
+                     "summary_model_id":  "c239007c-f2d1-48fd-9987-8d8415739a28",
+                     "tenant_id":  10000,
+                     "type":  "document",
+                     "updated_at":  "2026-10-16T18:44:22.869003+08:00",
+                     "vector_store_engine_type":  "postgres",
+                     "vector_store_name":  "System default",
+                     "vector_store_source":  "env",
+                     "vector_store_status":  "available",
+                     "vlm_config":  {
+                                        "api_key":  "",
+                                        "base_url":  "",
+                                        "enabled":  false,
+                                        "interface_type":  "",
+                                        "model_id":  "",
+                                        "model_name":  ""
+                                    },
+                     "wiki_config":  null
+                 },
+                 {
+                     "asr_config":  {
+                                        "enabled":  false,
+                                        "language":  "",
+                                        "model_id":  ""
+                                    },
+                     "auto_tag_config":  {
+                                             "enabled":  false,
+                                             "max_tags":  3,
+                                             "skip_if_tagged":  true
+                                         },
+                     "capabilities":  {
+                                          "faq":  false,
+                                          "graph":  false,
+                                          "keyword":  true,
+                                          "vector":  true,
+                                          "wiki":  true
+                                      },
+                     "chunk_count":  0,
+                     "chunking_config":  {
+                                             "child_chunk_size":  384,
+                                             "chunk_overlap":  80,
+                                             "chunk_size":  512,
+                                             "enable_parent_child":  true,
+                                             "parent_chunk_size":  4096,
+                                             "separators":  [
+                                                                "\n\n",
+                                                                "\n",
+                                                                "。",
+                                                                "！",
+                                                                "？",
+                                                                ";",
+                                                                "；"
+                                                            ],
+                                             "strategy":  "auto"
+                                         },
+                     "created_at":  "2026-10-13T17:37:07.459188+08:00",
+                     "creator_id":  "2dc989f2-4b50-49d6-a718-e0c88f0e0f57",
+                     "creator_name":  "kent",
+                     "deleted_at":  null,
+                     "description":  "",
+                     "embedding_model_id":  "9d3e18ac-32e2-471f-9c00-9600259f6240",
+                     "extract_config":  {
+                                            "enabled":  false
+                                        },
+                     "faq_config":  null,
+                     "generated_profile":  {
+                                               "aggregate_hash":  "7833734fac68d6e1e05005f23d7cabafdb0af539596884b7b58aecf9342beea3",
+                                               "generated_at":  "2026-10-13T17:38:43.822934396+08:00",
+                                               "gist":  "该集合涵盖大模型中LoRA微调的技术文档，解释原理与应用。",
+                                               "model_id":  "c239007c-f2d1-48fd-9987-8d8415739a28",
+                                               "stats":  {
+                                                             "doc_types":  [
+                                                                               {
+                                                                                   "count":  1,
+                                                                                   "name":  "技术文档"
+                                                                               }
+                                                                           ],
+                                                             "document_count":  1,
+                                                             "earliest_at":  "2026-10-13T17:38:23.060721+08:00",
+                                                             "file_types":  [
+                                                                                {
+                                                                                    "count":  1,
+                                                                                    "name":  "pptx"
+                                                                                }
+                                                                            ],
+                                                             "latest_at":  "2026-10-13T17:38:23.060721+08:00",
+                                                             "profiled_count":  1,
+                                                             "raw_topics":  [
+                                                                                {
+                                                                                    "count":  1,
+                                                                                    "name":  "LoRA"
+                                                                                },
+                                                                                {
+                                                                                    "count":  1,
+                                                                                    "name":  "微调"
+                                                                                },
+                                                                                {
+                                                                                    "count":  1,
+                                                                                    "name":  "低秩分解"
+                                                                                },
+                                                                                {
+                                                                                    "count":  1,
+                                                                                    "name":  "大模型"
+                                                                                },
+                                                                                {
+                                                                                    "count":  1,
+                                                                                    "name":  "参数优化"
+                                                                                }
+                                                                            ]
+                                                         },
+                                               "status":  "ready",
+                                               "topics":  [
+                                                              "大模型",
+                                                              "LoRA微调",
+                                                              "参数优化"
+                                                          ],
+                                               "typical_questions":  [
+                                                                         "大模型中LoRA微调的具体步骤和优势是什么？"
+                                                                     ]
+                                           },
+                     "id":  "e8c19d20-4e59-45f3-acd3-760b60b58071",
+                     "image_processing_config":  {
+                                                     "model_id":  ""
+                                                 },
+                     "indexing_strategy":  {
+                                               "graph_enabled":  false,
+                                               "keyword_enabled":  true,
+                                               "vector_enabled":  true,
+                                               "wiki_enabled":  true
+                                           },
+                     "is_pinned":  false,
+                     "is_processing":  false,
+                     "is_temporary":  false,
+                     "knowledge_count":  1,
+                     "name":  "test2",
+                     "pinned_at":  null,
+                     "processing_count":  0,
+                     "profile_config":  {
+                                            "enabled":  true,
+                                            "model_id":  "c239007c-f2d1-48fd-9987-8d8415739a28"
+                                        },
+                     "question_generation_config":  {
+                                                        "enabled":  true,
+                                                        "question_count":  3
+                                                    },
+                     "share_count":  0,
+                     "storage_backend_id":  "8cc3dd17-232d-402d-95c4-39b0c729a266",
+                     "storage_config":  {
+                                            "app_id":  "",
+                                            "bucket_name":  "",
+                                            "path_prefix":  "",
+                                            "provider":  "local",
+                                            "region":  "",
+                                            "secret_id":  "",
+                                            "secret_key":  ""
+                                        },
+                     "storage_provider_config":  {
+                                                     "provider":  "local"
+                                                 },
+                     "summary_model_id":  "c239007c-f2d1-48fd-9987-8d8415739a28",
+                     "tenant_id":  10000,
+                     "type":  "document",
+                     "updated_at":  "2026-10-13T17:38:52.66686+08:00",
+                     "vector_store_engine_type":  "postgres",
+                     "vector_store_name":  "System default",
+                     "vector_store_source":  "env",
+                     "vector_store_status":  "available",
+                     "vlm_config":  {
+                                        "api_key":  "",
+                                        "base_url":  "",
+                                        "enabled":  true,
+                                        "interface_type":  "",
+                                        "model_id":  "747f8830-6091-45e9-8167-a65fb9146944",
+                                        "model_name":  ""
+                                    },
+                     "wiki_config":  {
+                                         "extraction_granularity":  "standard",
+                                         "max_pages_per_ingest":  0,
+                                         "synthesis_model_id":  ""
+                                     }
+                 },
+                 {
+                     "asr_config":  {
+                                        "enabled":  false,
+                                        "language":  "",
+                                        "model_id":  ""
+                                    },
+                     "auto_tag_config":  {
+                                             "enabled":  false,
+                                             "max_tags":  3,
+                                             "skip_if_tagged":  true
+                                         },
+                     "capabilities":  {
+                                          "faq":  false,
+                                          "graph":  false,
+                                          "keyword":  true,
+                                          "vector":  true,
+                                          "wiki":  false
+                                      },
+                     "chunk_count":  0,
+                     "chunking_config":  {
+                                             "child_chunk_size":  384,
+                                             "chunk_overlap":  80,
+                                             "chunk_size":  512,
+                                             "enable_parent_child":  true,
+                                             "parent_chunk_size":  4096,
+                                             "separators":  [
+                                                                "\n\n",
+                                                                "\n",
+                                                                "。",
+                                                                "！",
+                                                                "？",
+                                                                ";",
+                                                                "；"
+                                                            ],
+                                             "strategy":  "auto"
+                                         },
+                     "created_at":  "2026-10-13T17:33:01.928356+08:00",
+                     "creator_id":  "2dc989f2-4b50-49d6-a718-e0c88f0e0f57",
+                     "creator_name":  "kent",
+                     "deleted_at":  null,
+                     "description":  "",
+                     "embedding_model_id":  "9d3e18ac-32e2-471f-9c00-9600259f6240",
+                     "extract_config":  {
+                                            "enabled":  false
+                                        },
+                     "faq_config":  null,
+                     "id":  "bd8fbe05-3db2-4df8-894a-55dee4bcb9ce",
+                     "image_processing_config":  {
+                                                     "model_id":  ""
+                                                 },
+                     "indexing_strategy":  {
+                                               "graph_enabled":  false,
+                                               "keyword_enabled":  true,
+                                               "vector_enabled":  true,
+                                               "wiki_enabled":  false
+                                           },
+                     "is_pinned":  false,
+                     "is_processing":  false,
+                     "is_temporary":  false,
+                     "knowledge_count":  1,
+                     "name":  "test",
+                     "pinned_at":  null,
+                     "processing_count":  0,
+                     "profile_config":  {
+                                            "enabled":  false
+                                        },
+                     "question_generation_config":  {
+                                                        "enabled":  true,
+                                                        "question_count":  3
+                                                    },
+                     "share_count":  0,
+                     "storage_backend_id":  "8cc3dd17-232d-402d-95c4-39b0c729a266",
+                     "storage_config":  {
+                                            "app_id":  "",
+                                            "bucket_name":  "",
+                                            "path_prefix":  "",
+                                            "provider":  "local",
+                                            "region":  "",
+                                            "secret_id":  "",
+                                            "secret_key":  ""
+                                        },
+                     "storage_provider_config":  {
+                                                     "provider":  "local"
+                                                 },
+                     "summary_model_id":  "c239007c-f2d1-48fd-9987-8d8415739a28",
+                     "tenant_id":  10000,
+                     "type":  "document",
+                     "updated_at":  "2026-10-13T17:33:16.441135+08:00",
+                     "vector_store_engine_type":  "postgres",
+                     "vector_store_name":  "System default",
+                     "vector_store_source":  "env",
+                     "vector_store_status":  "available",
+                     "vlm_config":  {
+                                        "api_key":  "",
+                                        "base_url":  "",
+                                        "enabled":  true,
+                                        "interface_type":  "",
+                                        "model_id":  "747f8830-6091-45e9-8167-a65fb9146944",
+                                        "model_name":  ""
+                                    },
+                     "wiki_config":  {
+                                         "extraction_granularity":  "standard",
+                                         "max_pages_per_ingest":  0,
+                                         "synthesis_model_id":  ""
+                                     }
+                 }
+             ],
+    "success":  true
+}

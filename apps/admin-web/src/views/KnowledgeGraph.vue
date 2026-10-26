@@ -43,6 +43,7 @@ const emit = defineEmits<{
   select: [slug: string | null]
 }>()
 
+const root = ref<HTMLElement | null>(null)
 const host = ref<HTMLElement | null>(null)
 const hideArrow = ref(false)
 const selectedSlug = ref<string | null>(null)
@@ -58,7 +59,10 @@ const titleMap = ref<Map<string, WikiTitle>>(new Map())
 let chart: Graph | null = null
 let resizeObserver: ResizeObserver | null = null
 let searchTimer = 0
+let resizeTimer = 0
 let focusSeq = 0
+let lastSize = { width: 0, height: 0 }
+let fitAfterLayout = false
 
 const degreeMap = computed(() => {
   const degrees = new Map<string, number>()
@@ -248,14 +252,41 @@ async function fit() {
 }
 
 function canvasSize() {
-  const el = host.value
-  if (!el) {
-    return { width: 800, height: 600 }
+  const box = root.value
+  if (!box) {
+    return { width: 0, height: 0 }
   }
-  const parent = el.parentElement
-  const width = Math.max(parent?.clientWidth || el.clientWidth, 320)
-  const height = Math.max(parent?.clientHeight || el.clientHeight, 400)
+  // 只用外层固定盒的 client 尺寸，避免 G6 改写 canvas 后反馈撑高父级
+  const width = Math.floor(box.clientWidth)
+  const height = Math.floor(box.clientHeight)
   return { width, height }
+}
+
+function sizeReady(size: { width: number; height: number }) {
+  return size.width >= 64 && size.height >= 64
+}
+
+function applyCanvasSize(size: { width: number; height: number }, shouldFit = false) {
+  if (!chart || !sizeReady(size)) {
+    return
+  }
+  const same =
+    Math.abs(size.width - lastSize.width) < 2 && Math.abs(size.height - lastSize.height) < 2
+  if (same && !shouldFit) {
+    return
+  }
+  lastSize = size
+  chart.resize(size.width, size.height)
+  if (shouldFit) {
+    void fit()
+  }
+}
+
+function scheduleResize(shouldFit = false) {
+  window.clearTimeout(resizeTimer)
+  resizeTimer = window.setTimeout(() => {
+    applyCanvasSize(canvasSize(), shouldFit)
+  }, 80)
 }
 
 function nodeStyle(node: WikiNode) {
@@ -284,10 +315,16 @@ function nodeStyle(node: WikiNode) {
 }
 
 function render() {
-  if (!host.value) {
+  if (!host.value || !root.value) {
     return
   }
   const { width, height } = canvasSize()
+  if (!sizeReady({ width, height })) {
+    // 标签隐藏或尚未布局时不初始化，等 ResizeObserver 再画
+    return
+  }
+  lastSize = { width, height }
+  fitAfterLayout = true
   const linkedCount = props.graph.nodes.filter((node) => linkedSlugs.value.has(node.slug)).length
   const params = forceParams(Math.max(linkedCount, 1))
   const edgeColor = edgeBaseColor()
@@ -363,7 +400,10 @@ function render() {
 
   chart.on(GraphEvent.AFTER_LAYOUT, () => {
     placeIsolated(width, height)
-    void fit()
+    if (fitAfterLayout) {
+      fitAfterLayout = false
+      void fit()
+    }
   })
   chart.on('node:click', (event: unknown) => {
     const id = nodeID(event)
@@ -592,26 +632,38 @@ watch(
 
 onMounted(async () => {
   await ensureTitles()
+  await nextTick()
   render()
-  if (host.value?.parentElement) {
+  if (root.value) {
     resizeObserver = new ResizeObserver(() => {
-      if (!chart || !host.value) {
+      const size = canvasSize()
+      if (!sizeReady(size)) {
         return
       }
-      const { width, height } = canvasSize()
-      chart.resize(width, height)
-      void fit()
+      if (!chart) {
+        render()
+        return
+      }
+      // 仅同步画布像素尺寸，禁止在 resize 里 fitView，否则会与滚动条互相触发无限撑高
+      scheduleResize(false)
     })
-    resizeObserver.observe(host.value.parentElement)
+    resizeObserver.observe(root.value)
   }
+  window.addEventListener('resize', onWindowResize)
   if (props.focusSlug && props.graph.nodes.some((node) => node.slug === props.focusSlug)) {
     await nextTick()
     await selectNode(props.focusSlug)
   }
 })
 
+function onWindowResize() {
+  scheduleResize(true)
+}
+
 onBeforeUnmount(() => {
   window.clearTimeout(searchTimer)
+  window.clearTimeout(resizeTimer)
+  window.removeEventListener('resize', onWindowResize)
   resizeObserver?.disconnect()
   chart?.destroy()
 })
@@ -620,7 +672,7 @@ defineExpose({ selectNode, focusNode })
 </script>
 
 <template>
-  <div class="wiki-graph">
+  <div ref="root" class="wiki-graph">
     <div ref="host" class="wiki-graph__canvas" title=""></div>
 
     <div class="wiki-graph__float wiki-graph__float--left">
@@ -720,16 +772,24 @@ defineExpose({ selectNode, focusNode })
 .wiki-graph {
   position: relative;
   width: 100%;
-  height: calc(100vh - var(--qz-header-height) - 88px);
-  min-height: 480px;
+  height: 100%;
+  min-height: 420px;
   overflow: hidden;
   border: 1px solid var(--qz-border);
   border-radius: var(--qz-radius);
   background: var(--qz-surface);
 }
 .wiki-graph__canvas {
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
+  overflow: hidden;
+}
+.wiki-graph__canvas :deep(canvas) {
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
 }
 .wiki-graph__float {
   position: absolute;

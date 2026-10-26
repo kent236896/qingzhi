@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute, useRouter, type RouteLocationRaw } from 'vue-router'
 import { MenuFoldIcon, MenuUnfoldIcon } from 'tdesign-icons-vue-next'
 import UserAvatar from '@/components/UserAvatar.vue'
 import { changeOwnPassword, fetchAuthMenus, fetchOwnProfile, updateOwnProfile } from '@/api/auth'
@@ -18,7 +18,11 @@ const menus = ref<MenuNode[]>([])
 const collapsed = ref(false)
 const expanded = ref<string[]>([])
 const menuStatus = ref<'loading' | 'error' | 'ready'>('loading')
-const breadcrumbs = computed(() => route.meta.breadcrumb ?? [])
+type Crumb = { title: string; to?: RouteLocationRaw }
+
+const breadcrumbs = computed<Crumb[]>(() =>
+  (route.meta.breadcrumb ?? []).map((item) => (typeof item === 'string' ? { title: item } : item)),
+)
 const showBreadcrumb = computed(() => breadcrumbs.value.length > 1)
 const pageTitle = computed(() => (typeof route.meta.title === 'string' ? route.meta.title : ''))
 const activeMenu = computed(() => route.path || '/')
@@ -226,7 +230,13 @@ watch(
     <t-layout>
       <t-header class="admin-header" :height="'var(--qz-header-height)'">
         <t-breadcrumb v-if="showBreadcrumb">
-          <t-breadcrumb-item v-for="item in breadcrumbs" :key="item">{{ item }}</t-breadcrumb-item>
+          <t-breadcrumb-item
+            v-for="(item, index) in breadcrumbs"
+            :key="`${item.title}-${index}`"
+            :to="index < breadcrumbs.length - 1 ? item.to : undefined"
+          >
+            {{ item.title }}
+          </t-breadcrumb-item>
         </t-breadcrumb>
         <span v-else class="header-placeholder"></span>
         <t-dropdown trigger="click" placement="bottom-right" :min-column-width="168">

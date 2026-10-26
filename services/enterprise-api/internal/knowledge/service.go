@@ -107,7 +107,7 @@ func (s *Service) List(ctx context.Context, actor Actor, scopeType, keyword stri
 		if keyword != "" && !strings.Contains(strings.ToLower(item.Name), keyword) {
 			continue
 		}
-		if !CanView(item, item.ShareUserIDs, actor, facts) {
+		if !CanView(item, item.Shares(), actor, facts) {
 			continue
 		}
 		item.RemoteID = ""
@@ -245,7 +245,7 @@ func (s *Service) Update(ctx context.Context, actor Actor, id string, name, desc
 	}
 	if sharesSet {
 		if item.ScopeType != ScopePersonal {
-			return Base{}, invalid("只有个人知识库可以分享给他人")
+			return Base{}, invalid("请使用分享接口设置组织或角色知识库的分享范围")
 		}
 		item.ShareUserIDs, err = s.cleanUsers(ctx, shareUserIDs, actor.UserID)
 		if err != nil {
@@ -267,6 +267,78 @@ func (s *Service) Update(ctx context.Context, actor Actor, id string, name, desc
 			return tx.ReplaceShares(ctx, item.ID, item.ShareUserIDs)
 		}
 		return nil
+	})
+	item.RemoteID = ""
+	return item, err
+}
+
+// ShareInput updates who can view a knowledge base beyond its own scope.
+type ShareInput struct {
+	ShareUserIDs []string `json:"share_user_ids"`
+	ShareOrgIDs  []string `json:"share_org_ids"`
+	ShareRoleIDs []string `json:"share_role_ids"`
+}
+
+// Share replaces share targets for a writable knowledge base.
+func (s *Service) Share(ctx context.Context, actor Actor, id string, input ShareInput) (Base, error) {
+	item, _, err := s.writable(ctx, actor, id)
+	if err != nil {
+		return Base{}, err
+	}
+	if !CanShare(item, actor) {
+		return Base{}, forbidden("当前知识库不支持分享或无权分享")
+	}
+	switch item.ScopeType {
+	case ScopePersonal:
+		if len(input.ShareOrgIDs) > 0 || len(input.ShareRoleIDs) > 0 {
+			return Base{}, invalid("个人知识库只能分享给用户")
+		}
+		item.ShareUserIDs, err = s.cleanUsers(ctx, input.ShareUserIDs, actor.UserID)
+		if err != nil {
+			return Base{}, err
+		}
+		item.ShareOrgIDs = []string{}
+		item.ShareRoleIDs = []string{}
+	case ScopeOrg, ScopeRole:
+		if len(input.ShareUserIDs) > 0 {
+			return Base{}, invalid("组织或角色知识库只能分享给组织或角色")
+		}
+		excludeOrg := ""
+		excludeRole := ""
+		if item.ScopeType == ScopeOrg {
+			excludeOrg = item.ScopeID
+		}
+		if item.ScopeType == ScopeRole {
+			excludeRole = item.ScopeID
+		}
+		item.ShareOrgIDs, err = s.cleanOrgs(ctx, input.ShareOrgIDs, item.TenantIDs, excludeOrg)
+		if err != nil {
+			return Base{}, err
+		}
+		item.ShareRoleIDs, err = s.cleanRoles(ctx, input.ShareRoleIDs, item.TenantIDs, excludeRole)
+		if err != nil {
+			return Base{}, err
+		}
+		item.ShareUserIDs = []string{}
+	default:
+		return Base{}, invalid("岗位知识库暂不支持分享")
+	}
+	item.Updater = actor.Username
+	item.UpdateTime = time.Now().UTC()
+	err = s.store.Transaction(ctx, func(tx Store) error {
+		if err := tx.UpdateBase(ctx, item); err != nil {
+			return err
+		}
+		if item.ScopeType == ScopePersonal {
+			if err := tx.ReplaceShares(ctx, item.ID, item.ShareUserIDs); err != nil {
+				return err
+			}
+			return tx.ReplaceShareScopes(ctx, item.ID, nil, nil)
+		}
+		if err := tx.ReplaceShares(ctx, item.ID, nil); err != nil {
+			return err
+		}
+		return tx.ReplaceShareScopes(ctx, item.ID, item.ShareOrgIDs, item.ShareRoleIDs)
 	})
 	item.RemoteID = ""
 	return item, err
@@ -364,7 +436,7 @@ func (s *Service) visible(ctx context.Context, actor Actor, id string) (Base, Sc
 	if err != nil {
 		return Base{}, ScopeFacts{}, err
 	}
-	if !CanView(item, item.ShareUserIDs, actor, facts) {
+	if !CanView(item, item.Shares(), actor, facts) {
 		return Base{}, ScopeFacts{}, forbidden("无权查看这个知识库")
 	}
 	return item, facts, nil
@@ -547,6 +619,72 @@ func (s *Service) cleanUsers(ctx context.Context, userIDs []string, owner string
 			} else if err != nil {
 				return nil, err
 			}
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
+	}
+	return out, nil
+}
+
+func (s *Service) cleanOrgs(ctx context.Context, orgIDs, tenants []string, exclude string) ([]string, error) {
+	tenantSet := map[string]struct{}{}
+	for _, id := range tenants {
+		tenantSet[id] = struct{}{}
+	}
+	out := make([]string, 0, len(orgIDs))
+	seen := map[string]struct{}{}
+	for _, id := range orgIDs {
+		id = strings.TrimSpace(id)
+		if id == "" || id == exclude {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		if s.identity == nil {
+			return nil, notReady("身份服务不可用")
+		}
+		org, err := s.identity.FindOrganizationByID(ctx, id)
+		if errors.Is(err, identity.ErrNotFound) {
+			return nil, invalid("分享组织不存在")
+		}
+		if err != nil {
+			return nil, err
+		}
+		if _, ok := tenantSet[org.TenantID]; !ok {
+			return nil, invalid("分享组织必须属于知识库已发布的租户")
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
+	}
+	return out, nil
+}
+
+func (s *Service) cleanRoles(ctx context.Context, roleIDs, tenants []string, exclude string) ([]string, error) {
+	out := make([]string, 0, len(roleIDs))
+	seen := map[string]struct{}{}
+	for _, id := range roleIDs {
+		id = strings.TrimSpace(id)
+		if id == "" || id == exclude {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		if s.identity == nil {
+			return nil, notReady("身份服务不可用")
+		}
+		found := false
+		for _, tenantID := range tenants {
+			if _, err := s.identity.GetRole(ctx, tenantID, id); err == nil {
+				found = true
+				break
+			} else if !errors.Is(err, identity.ErrNotFound) {
+				return nil, err
+			}
+		}
+		if !found {
+			return nil, invalid("分享角色不存在或不属于知识库已发布的租户")
 		}
 		seen[id] = struct{}{}
 		out = append(out, id)

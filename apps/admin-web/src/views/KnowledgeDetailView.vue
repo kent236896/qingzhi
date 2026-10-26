@@ -21,6 +21,7 @@ import {
   type WikiGraph,
   type WikiStatus,
 } from '@/api/knowledge'
+import { formatTime } from '@/api/security'
 import { feedback } from '@/utils/feedback'
 
 type DetailTab = 'files' | 'wiki' | 'graph'
@@ -388,6 +389,7 @@ onBeforeUnmount(() => {
           <t-tag variant="light">{{ row.parse_status }}</t-tag>
           <span v-if="row.error_msg">{{ row.error_msg }}</span>
         </template>
+        <template #create_time="{ row }">{{ formatTime(row.create_time) }}</template>
       </t-table>
       <t-table
         v-if="results.length"
@@ -416,7 +418,10 @@ onBeforeUnmount(() => {
       />
     </section>
 
-    <section v-if="base.wiki_enabled" v-show="activeTab === 'graph'" class="kb-detail__panel kb-detail__panel--graph">
+    <section
+      v-if="base.wiki_enabled && activeTab === 'graph'"
+      class="kb-detail__panel kb-detail__panel--graph"
+    >
       <div v-if="wiki?.status === 'generating' || wiki?.status === 'empty'" class="hint">Wiki 还没有可展示的图谱。</div>
       <KnowledgeGraph
         v-else-if="graph"
@@ -437,6 +442,7 @@ onBeforeUnmount(() => {
   display: flex;
   gap: 12px;
   align-items: center;
+  flex: 0 0 auto;
 }
 .kb-detail__tabs :deep(.t-tabs) {
   flex: 1;
@@ -444,15 +450,30 @@ onBeforeUnmount(() => {
 }
 .kb-detail__banner {
   margin: 12px 0 16px;
+  flex: 0 0 auto;
 }
 .kb-detail__panel {
   margin-top: 8px;
 }
-.kb-detail--graph .kb-detail__panel--graph {
-  margin-top: 8px;
-}
 .kb-detail--graph {
-  overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
+  /* 页头 + 内容区上下 padding + 页面标题区，避免 100vh 再叠一层导致页面滚动条反馈 */
+  height: calc(100dvh - var(--qz-header-height) - 2 * var(--qz-content-padding) - 56px);
+  max-height: calc(100dvh - var(--qz-header-height) - 2 * var(--qz-content-padding) - 56px);
+  overflow: hidden;
+}
+.kb-detail--graph .kb-detail__panel--graph {
+  flex: 1 1 auto;
+  min-height: 0;
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+}
+.kb-detail--graph .kb-detail__panel--graph > * {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
 }
 .toolbar {
   display: flex;

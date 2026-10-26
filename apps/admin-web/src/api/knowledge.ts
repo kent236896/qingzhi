@@ -12,6 +12,8 @@ export interface KnowledgeBase {
   creator_id: string
   tenant_ids: string[]
   share_user_ids?: string[]
+  share_org_ids?: string[]
+  share_role_ids?: string[]
   creator: string
   create_time: string
 }
@@ -207,6 +209,13 @@ export function updateKnowledgeBase(
   body: { name?: string; description?: string; tenant_ids?: string[]; share_user_ids?: string[] },
 ) {
   return http.patch<KnowledgeBase>(`/api/v1/knowledge-bases/${id}`, body)
+}
+
+export function shareKnowledgeBase(
+  id: string,
+  body: { share_user_ids?: string[]; share_org_ids?: string[]; share_role_ids?: string[] },
+) {
+  return http.put<KnowledgeBase>(`/api/v1/knowledge-bases/${id}/shares`, body)
 }
 
 export function deleteKnowledgeBase(id: string) {

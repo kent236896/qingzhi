@@ -41,6 +41,7 @@ func (h Knowledge) Register(group *gin.RouterGroup, enforce bool) {
 	group.POST("/knowledge-bases", query, h.create)
 	group.GET("/knowledge-bases/:id", query, h.get)
 	group.PATCH("/knowledge-bases/:id", query, h.update)
+	group.PUT("/knowledge-bases/:id/shares", query, h.share)
 	group.DELETE("/knowledge-bases/:id", query, h.delete)
 	group.GET("/knowledge-bases/:id/files", query, h.files)
 	group.POST("/knowledge-bases/:id/files", query, h.upload)
@@ -186,6 +187,19 @@ func (h Knowledge) update(c *gin.Context) {
 		return
 	}
 	item, err := h.Service.Update(c.Request.Context(), actor, id, body.Name, body.Description, body.TenantIDs, body.ShareUserIDs, body.TenantIDs != nil, body.ShareUserIDs != nil)
+	h.write(c, item, err)
+}
+
+func (h Knowledge) share(c *gin.Context) {
+	actor, id, ok := h.base(c)
+	if !ok {
+		return
+	}
+	var body knowledge.ShareInput
+	if !response.BindJSON(c, &body) {
+		return
+	}
+	item, err := h.Service.Share(c.Request.Context(), actor, id, body)
 	h.write(c, item, err)
 }
 

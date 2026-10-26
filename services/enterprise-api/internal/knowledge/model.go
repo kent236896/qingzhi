@@ -19,12 +19,19 @@ type Base struct {
 	CreatorID     string     `json:"creator_id"`
 	TenantIDs     []string   `json:"tenant_ids"`
 	ShareUserIDs  []string   `json:"share_user_ids,omitempty"`
+	ShareOrgIDs   []string   `json:"share_org_ids,omitempty"`
+	ShareRoleIDs  []string   `json:"share_role_ids,omitempty"`
 	WikiWaitStart *time.Time `json:"-"`
 	Creator       string     `json:"creator"`
 	CreateTime    time.Time  `json:"create_time"`
 	Updater       string     `json:"updater"`
 	UpdateTime    time.Time  `json:"update_time"`
 	Deleted       bool       `json:"deleted"`
+}
+
+// Shares bundles share targets for access checks.
+func (b Base) Shares() Shares {
+	return Shares{UserIDs: b.ShareUserIDs, OrgIDs: b.ShareOrgIDs, RoleIDs: b.ShareRoleIDs}
 }
 
 // File is one uploaded document.

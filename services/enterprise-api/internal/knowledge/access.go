@@ -5,6 +5,9 @@ const (
 	ScopeOrg      = "org_node"
 	ScopePost     = "position"
 	ScopeRole     = "role"
+
+	ShareTargetOrg  = "org_node"
+	ShareTargetRole = "role"
 )
 
 // Actor is the signed-in user for a knowledge-base decision.
@@ -21,6 +24,13 @@ type ScopeFacts struct {
 	OrgIDs  map[string]struct{}
 	PostIDs map[string]struct{}
 	RoleIDs map[string]struct{}
+}
+
+// Shares are extra viewers beyond the knowledge base's own scope.
+type Shares struct {
+	UserIDs []string
+	OrgIDs  []string
+	RoleIDs []string
 }
 
 // VisibleOrgIDs returns the caller's departments and every department below them.
@@ -62,8 +72,17 @@ func overlaps(left, right []string) bool {
 	return false
 }
 
+func hasAny(ids []string, facts map[string]struct{}) bool {
+	for _, id := range ids {
+		if _, ok := facts[id]; ok {
+			return true
+		}
+	}
+	return false
+}
+
 // CanView reports whether the actor may read this knowledge base.
-func CanView(base Base, shares []string, actor Actor, facts ScopeFacts) bool {
+func CanView(base Base, shares Shares, actor Actor, facts ScopeFacts) bool {
 	if base.ScopeType == ScopePersonal {
 		if base.ScopeID == actor.UserID {
 			return true
@@ -71,7 +90,7 @@ func CanView(base Base, shares []string, actor Actor, facts ScopeFacts) bool {
 		if !overlaps(base.TenantIDs, actor.TenantIDs) {
 			return false
 		}
-		for _, userID := range shares {
+		for _, userID := range shares.UserIDs {
 			if userID == actor.UserID {
 				return true
 			}
@@ -86,17 +105,25 @@ func CanView(base Base, shares []string, actor Actor, facts ScopeFacts) bool {
 	}
 	switch base.ScopeType {
 	case ScopeOrg:
-		_, ok := facts.OrgIDs[base.ScopeID]
-		return ok
+		if _, ok := facts.OrgIDs[base.ScopeID]; ok {
+			return true
+		}
 	case ScopePost:
-		_, ok := facts.PostIDs[base.ScopeID]
-		return ok
+		if _, ok := facts.PostIDs[base.ScopeID]; ok {
+			return true
+		}
 	case ScopeRole:
-		_, ok := facts.RoleIDs[base.ScopeID]
-		return ok
+		if _, ok := facts.RoleIDs[base.ScopeID]; ok {
+			return true
+		}
 	default:
 		return false
 	}
+	// 组织/角色知识库还可分享给其他组织或角色；命中其一即可查看。
+	if base.ScopeType == ScopeOrg || base.ScopeType == ScopeRole {
+		return hasAny(shares.OrgIDs, facts.OrgIDs) || hasAny(shares.RoleIDs, facts.RoleIDs)
+	}
+	return false
 }
 
 // CanWrite reports whether the actor may change files or the knowledge base.
@@ -108,4 +135,12 @@ func CanWrite(base Base, actor Actor) bool {
 		return base.ScopeID == actor.UserID
 	}
 	return actor.CanManage && overlaps(base.TenantIDs, actor.TenantIDs)
+}
+
+// CanShare reports whether the actor may edit share targets.
+func CanShare(base Base, actor Actor) bool {
+	if !CanWrite(base, actor) {
+		return false
+	}
+	return base.ScopeType == ScopePersonal || base.ScopeType == ScopeOrg || base.ScopeType == ScopeRole
 }

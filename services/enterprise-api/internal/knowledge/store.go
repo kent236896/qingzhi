@@ -12,6 +12,7 @@ type Store interface {
 	ListBases(ctx context.Context) ([]Base, error)
 	ReplaceTenants(ctx context.Context, baseID string, tenantIDs []string) error
 	ReplaceShares(ctx context.Context, baseID string, userIDs []string) error
+	ReplaceShareScopes(ctx context.Context, baseID string, orgIDs, roleIDs []string) error
 	InsertFile(ctx context.Context, item File) error
 	UpdateFile(ctx context.Context, item File) error
 	ListFiles(ctx context.Context, baseID string) ([]File, error)

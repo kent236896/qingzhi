@@ -41,7 +41,7 @@
 
 模型配置接口在 `/api/v1/weknora/models`。管理后台在「系统配置」的默认模型下拉框里完成模型增删改查，测试和调试仍在编辑抽屉中。未填写 WeKnora 地址和 API Key 时，页面会先引导填写这两项，相关接口也会返回同样的提示。查看需要 `model:query`，增删改、复制、密钥、测试和调试需要 `model:manage`。这两项只授予超级管理员。模型本体和密钥只存在于 WeKnora，本系统只保存场景默认绑定 `sys_weknora_model_bindings`。角色为 `embedding`、`summary`、`wiki_synthesis`、`vlm`、`asr`、`rerank`。默认模型只保存在 `sys_weknora_model_bindings`，在「系统配置」里维护，不从环境变量读取。WeKnora 地址和 API Key 也保存在 `sys_weknora_settings`，由「系统配置」填写；环境变量只在这张表还是空的时候写入一次。接口不返回 API Key 明文。更换向量默认模型只影响之后新建的知识库。WeKnora 的 API Key 需要 `manage_models` 或 full-access。内网模型地址要在 WeKnora 配置 `SSRF_WHITELIST_EXTRA`。`WEKNORA_OLLAMA_ENABLED` 默认关闭，关闭时本地模型接口返回 404。测试和调试按用户每分钟 5 次。
 
-知识库接口在 `/api/v1/knowledge-bases`。进入页面需要 `knowledge:query`。个人知识库可由本人创建并分享；组织、岗位、角色知识库以及删除、改租户需要 `knowledge:manage`。上传大小读取 `GET /api/v1/knowledge-bases/limits`。Wiki 状态为 `disabled`、`empty`、`generating`、`ready`、`timeout`：文档都结束后页面数仍为 0，并且等待达到 `KB_WIKI_STATUS_TIMEOUT_MIN`，记为超时，不把文档标成失败。Wiki / 图谱读代理、链接语法与标签结构见 `docs/wiki.md`。
+知识库接口在 `/api/v1/knowledge-bases`。进入页面需要 `knowledge:query`。个人知识库可由本人创建并分享给用户；组织与角色知识库可由具备 `knowledge:manage` 的管理员分享给其他组织或角色（`PUT /api/v1/knowledge-bases/:id/shares`）。岗位知识库暂不支持分享。组织、岗位、角色知识库的创建、删除、改租户需要 `knowledge:manage`。上传大小读取 `GET /api/v1/knowledge-bases/limits`。Wiki 状态为 `disabled`、`empty`、`generating`、`ready`、`timeout`：文档都结束后页面数仍为 0，并且等待达到 `KB_WIKI_STATUS_TIMEOUT_MIN`，记为超时，不把文档标成失败。Wiki / 图谱读代理、链接语法与标签结构见 `docs/wiki.md`。
 
 ## Request ID
 

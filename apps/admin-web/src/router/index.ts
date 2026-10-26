@@ -96,7 +96,10 @@ export const router = createRouter({
           path: 'knowledge/:id',
           name: 'knowledge-detail',
           component: KnowledgeDetailView,
-          meta: { title: '知识库', breadcrumb: ['知识管理', '知识库'] },
+          meta: {
+            title: '知识库',
+            breadcrumb: [{ title: '知识管理', to: { name: 'knowledge' } }, '知识库'],
+          },
         },
         {
           path: 'dicts',

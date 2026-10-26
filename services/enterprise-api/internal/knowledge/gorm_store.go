@@ -49,6 +49,9 @@ func (s *GormStore) DeleteBase(ctx context.Context, id string) error {
 		if err := tx.Model(&shareRow{}).Where("knowledge_base_id = ? AND deleted = ?", id, false).Update("deleted", true).Error; err != nil {
 			return err
 		}
+		if err := tx.Model(&shareScopeRow{}).Where("knowledge_base_id = ? AND deleted = ?", id, false).Update("deleted", true).Error; err != nil {
+			return err
+		}
 		return tx.Model(&fileRow{}).Where("knowledge_base_id = ? AND deleted = ?", id, false).Updates(map[string]any{"deleted": true, "update_time": now}).Error
 	})
 }
@@ -66,7 +69,10 @@ func (s *GormStore) FindBase(ctx context.Context, id string) (Base, error) {
 	if item.TenantIDs, err = s.tenantIDs(ctx, id); err != nil {
 		return Base{}, err
 	}
-	item.ShareUserIDs, err = s.shareIDs(ctx, id)
+	if item.ShareUserIDs, err = s.shareIDs(ctx, id); err != nil {
+		return Base{}, err
+	}
+	item.ShareOrgIDs, item.ShareRoleIDs, err = s.shareScopeIDs(ctx, id)
 	return item, err
 }
 
@@ -83,6 +89,9 @@ func (s *GormStore) ListBases(ctx context.Context) ([]Base, error) {
 			return nil, err
 		}
 		if item.ShareUserIDs, err = s.shareIDs(ctx, item.ID); err != nil {
+			return nil, err
+		}
+		if item.ShareOrgIDs, item.ShareRoleIDs, err = s.shareScopeIDs(ctx, item.ID); err != nil {
 			return nil, err
 		}
 		items = append(items, item)
@@ -104,6 +113,28 @@ func (s *GormStore) ReplaceShares(ctx context.Context, baseID string, userIDs []
 		now := time.Now().UTC()
 		for _, userID := range userIDs {
 			row := shareRow{ID: newID(), KnowledgeBaseID: baseID, UserID: userID, CreateTime: now}
+			if err := tx.Create(&row).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+func (s *GormStore) ReplaceShareScopes(ctx context.Context, baseID string, orgIDs, roleIDs []string) error {
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&shareScopeRow{}).Where("knowledge_base_id = ? AND deleted = ?", baseID, false).Update("deleted", true).Error; err != nil {
+			return err
+		}
+		now := time.Now().UTC()
+		for _, orgID := range orgIDs {
+			row := shareScopeRow{ID: newID(), KnowledgeBaseID: baseID, TargetType: ShareTargetOrg, TargetID: orgID, CreateTime: now}
+			if err := tx.Create(&row).Error; err != nil {
+				return err
+			}
+		}
+		for _, roleID := range roleIDs {
+			row := shareScopeRow{ID: newID(), KnowledgeBaseID: baseID, TargetType: ShareTargetRole, TargetID: roleID, CreateTime: now}
 			if err := tx.Create(&row).Error; err != nil {
 				return err
 			}
@@ -157,6 +188,25 @@ func (s *GormStore) shareIDs(ctx context.Context, baseID string) ([]string, erro
 		ids = []string{}
 	}
 	return ids, err
+}
+
+func (s *GormStore) shareScopeIDs(ctx context.Context, baseID string) ([]string, []string, error) {
+	var rows []shareScopeRow
+	err := s.db.WithContext(ctx).Where("knowledge_base_id = ? AND deleted = ?", baseID, false).Find(&rows).Error
+	if err != nil {
+		return nil, nil, err
+	}
+	orgs := make([]string, 0)
+	roles := make([]string, 0)
+	for _, row := range rows {
+		switch row.TargetType {
+		case ShareTargetOrg:
+			orgs = append(orgs, row.TargetID)
+		case ShareTargetRole:
+			roles = append(roles, row.TargetID)
+		}
+	}
+	return orgs, roles, nil
 }
 
 func replaceTenants(tx *gorm.DB, baseID string, tenantIDs []string) error {
@@ -228,6 +278,18 @@ type shareRow struct {
 }
 
 func (shareRow) TableName() string { return "sys_knowledge_shares" }
+
+type shareScopeRow struct {
+	ID              string    `gorm:"type:uuid;primaryKey"`
+	KnowledgeBaseID string    `gorm:"column:knowledge_base_id"`
+	TargetType      string    `gorm:"column:target_type"`
+	TargetID        string    `gorm:"column:target_id"`
+	Creator         string    `gorm:"column:creator"`
+	CreateTime      time.Time `gorm:"column:create_time"`
+	Deleted         bool      `gorm:"column:deleted"`
+}
+
+func (shareScopeRow) TableName() string { return "sys_knowledge_share_scopes" }
 
 type fileRow struct {
 	ID          string    `gorm:"type:uuid;primaryKey"`
