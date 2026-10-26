@@ -27,7 +27,8 @@
     { "name": "members", "description": "租户成员与部门任职" },
     { "name": "knowledge", "description": "知识库、文件与 Wiki" },
     { "name": "models", "description": "WeKnora 模型配置与场景默认绑定" },
-    { "name": "settings", "description": "系统配置中的 WeKnora 连接" }
+    { "name": "settings", "description": "系统配置中的 WeKnora 连接" },
+    { "name": "sso", "description": "统一身份认证与单点登录管理（配置与审计；协议端点分阶段交付）" }
   ],
   "paths": {
     "/api/v1/system/settings": {
@@ -1199,6 +1200,80 @@
           "503": { "$ref": "#/components/responses/NotReady" }
         }
       }
+    },
+    "/api/v1/sso/login-options": {
+      "get": { "tags": ["sso"], "summary": "登录页可选外部提供方（公开）", "responses": { "200": { "$ref": "#/components/responses/Success" } } }
+    },
+    "/api/v1/sso/oidc/start": {
+      "get": { "tags": ["sso"], "summary": "开始外部 OIDC 授权码+PKCE 登录（公开，302）", "parameters": [
+        { "name": "provider_id", "in": "query", "required": true, "schema": { "type": "string" } },
+        { "name": "redirect", "in": "query", "schema": { "type": "string" } },
+        { "name": "tenant_id", "in": "query", "schema": { "type": "string" } }
+      ], "responses": { "302": { "description": "跳转外部 IdP" } } }
+    },
+    "/api/v1/sso/oauth2/start": {
+      "get": { "tags": ["sso"], "summary": "开始通用 OAuth2 登录（需可信 userinfo，公开，302）", "responses": { "302": { "description": "跳转外部授权页" } } }
+    },
+    "/api/v1/sso/oidc/callback": {
+      "get": { "tags": ["sso"], "summary": "OIDC 回调：校验 ID Token 后跳转前端票据页（公开，302）", "responses": { "302": { "description": "跳转前端 /login/sso/callback" } } }
+    },
+    "/api/v1/sso/oauth2/callback": {
+      "get": { "tags": ["sso"], "summary": "OAuth2 回调：校验 userinfo 后跳转前端（公开，302）", "responses": { "302": { "description": "跳转前端" } } }
+    },
+    "/api/v1/sso/oidc/exchange": {
+      "post": { "tags": ["sso"], "summary": "一次性票据兑换本平台 JWT（公开）", "responses": { "200": { "$ref": "#/components/responses/Success" }, "401": { "description": "票据无效或账号不可用" } } }
+    },
+    "/api/v1/sso/overview": {
+      "get": { "tags": ["sso"], "summary": "认证概览（真实计数）", "security": [{ "bearerAuth": [] }], "responses": { "200": { "$ref": "#/components/responses/Success" }, "503": { "$ref": "#/components/responses/NotReady" } } }
+    },
+    "/api/v1/sso/settings": {
+      "get": { "tags": ["sso"], "summary": "读取 SSO 全局策略", "security": [{ "bearerAuth": [] }], "responses": { "200": { "$ref": "#/components/responses/Success" } } },
+      "put": { "tags": ["sso"], "summary": "更新 SSO 全局策略", "security": [{ "bearerAuth": [] }], "responses": { "200": { "$ref": "#/components/responses/Success" } } }
+    },
+    "/api/v1/sso/providers": {
+      "get": { "tags": ["sso"], "summary": "外部身份提供方列表", "security": [{ "bearerAuth": [] }], "responses": { "200": { "$ref": "#/components/responses/Success" } } },
+      "post": { "tags": ["sso"], "summary": "创建外部身份提供方（不返回 Client Secret）", "security": [{ "bearerAuth": [] }], "responses": { "200": { "$ref": "#/components/responses/Success" } } }
+    },
+    "/api/v1/sso/providers/{id}": {
+      "get": { "tags": ["sso"], "summary": "外部身份提供方详情", "security": [{ "bearerAuth": [] }], "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }], "responses": { "200": { "$ref": "#/components/responses/Success" } } },
+      "put": { "tags": ["sso"], "summary": "更新外部身份提供方", "security": [{ "bearerAuth": [] }], "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }], "responses": { "200": { "$ref": "#/components/responses/Success" } } }
+    },
+    "/api/v1/sso/providers/{id}/status": {
+      "patch": { "tags": ["sso"], "summary": "启用或停用外部身份提供方", "security": [{ "bearerAuth": [] }], "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }], "responses": { "200": { "$ref": "#/components/responses/Success" } } }
+    },
+    "/api/v1/sso/oauth-clients": {
+      "get": { "tags": ["sso"], "summary": "OAuth/OIDC 客户端列表（不含完整 Secret）", "security": [{ "bearerAuth": [] }], "responses": { "200": { "$ref": "#/components/responses/Success" } } },
+      "post": { "tags": ["sso"], "summary": "注册客户端；机密客户端 Secret 仅返回一次", "security": [{ "bearerAuth": [] }], "responses": { "200": { "$ref": "#/components/responses/Success" } } }
+    },
+    "/api/v1/sso/oauth-clients/{id}": {
+      "get": { "tags": ["sso"], "summary": "OAuth 客户端详情", "security": [{ "bearerAuth": [] }], "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }], "responses": { "200": { "$ref": "#/components/responses/Success" } } },
+      "put": { "tags": ["sso"], "summary": "更新 OAuth 客户端", "security": [{ "bearerAuth": [] }], "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }], "responses": { "200": { "$ref": "#/components/responses/Success" } } }
+    },
+    "/api/v1/sso/oauth-clients/{id}/rotate-secret": {
+      "post": { "tags": ["sso"], "summary": "轮换 Client Secret（明文仅返回一次）", "security": [{ "bearerAuth": [] }], "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }], "responses": { "200": { "$ref": "#/components/responses/Success" } } }
+    },
+    "/api/v1/sso/oauth-clients/{id}/status": {
+      "patch": { "tags": ["sso"], "summary": "启用、停用或吊销 OAuth 客户端", "security": [{ "bearerAuth": [] }], "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }], "responses": { "200": { "$ref": "#/components/responses/Success" } } }
+    },
+    "/api/v1/sso/saml-sps": {
+      "get": { "tags": ["sso"], "summary": "SAML SP 注册列表", "security": [{ "bearerAuth": [] }], "responses": { "200": { "$ref": "#/components/responses/Success" } } },
+      "post": { "tags": ["sso"], "summary": "注册 SAML SP", "security": [{ "bearerAuth": [] }], "responses": { "200": { "$ref": "#/components/responses/Success" } } }
+    },
+    "/api/v1/sso/saml-sps/{id}": {
+      "get": { "tags": ["sso"], "summary": "SAML SP 详情", "security": [{ "bearerAuth": [] }], "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }], "responses": { "200": { "$ref": "#/components/responses/Success" } } },
+      "put": { "tags": ["sso"], "summary": "更新 SAML SP", "security": [{ "bearerAuth": [] }], "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }], "responses": { "200": { "$ref": "#/components/responses/Success" } } }
+    },
+    "/api/v1/sso/saml-sps/{id}/status": {
+      "patch": { "tags": ["sso"], "summary": "启用或停用 SAML SP", "security": [{ "bearerAuth": [] }], "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }], "responses": { "200": { "$ref": "#/components/responses/Success" } } }
+    },
+    "/api/v1/sso/identity-links": {
+      "get": { "tags": ["sso"], "summary": "外部身份映射列表", "security": [{ "bearerAuth": [] }], "responses": { "200": { "$ref": "#/components/responses/Success" } } }
+    },
+    "/api/v1/sso/identity-links/{id}": {
+      "delete": { "tags": ["sso"], "summary": "解绑外部身份映射", "security": [{ "bearerAuth": [] }], "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }], "responses": { "200": { "$ref": "#/components/responses/Success" } } }
+    },
+    "/api/v1/sso/auth-events": {
+      "get": { "tags": ["sso"], "summary": "认证与联邦审计事件", "security": [{ "bearerAuth": [] }], "responses": { "200": { "$ref": "#/components/responses/Success" } } }
     },
     "/api/v1/users": {
       "get": {

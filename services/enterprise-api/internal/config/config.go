@@ -25,9 +25,20 @@ type Config struct {
 	Redis     RedisConfig
 	CORS      CORSConfig
 	Auth      AuthConfig
+	SSO       SSOConfig
 	Monitor   MonitorConfig
 	WeKnora   WeKnoraConfig
 	Knowledge KnowledgeConfig
+}
+
+// SSOConfig controls federation issuer and secret encryption.
+// Protocol endpoints must use Issuer; never derive it from an untrusted Host header.
+type SSOConfig struct {
+	Issuer            string
+	SecretsKey        string
+	LocalLoginEnabled bool
+	FrontendBaseURL   string
+	DefaultTenantID   string
 }
 
 // AuthConfig holds JWT signing settings. Tokens are self-contained; Redis is not used for sessions.
@@ -237,6 +248,11 @@ func Load() (Config, error) {
 	if cfg.Auth.TokenTTL, err = parseDuration("JWT_EXPIRE", env.getenv("JWT_EXPIRE", ""), "24h"); err != nil {
 		return Config{}, err
 	}
+	cfg.SSO.Issuer = strings.TrimSpace(env.getenv("SSO_ISSUER", ""))
+	cfg.SSO.SecretsKey = env.getenv("SSO_SECRETS_KEY", "")
+	cfg.SSO.LocalLoginEnabled = parseBoolDefault(env.getenv("SSO_LOCAL_LOGIN_ENABLED", ""), true)
+	cfg.SSO.FrontendBaseURL = strings.TrimSpace(env.getenv("SSO_FRONTEND_BASE_URL", ""))
+	cfg.SSO.DefaultTenantID = strings.TrimSpace(env.getenv("SSO_DEFAULT_TENANT_ID", ""))
 	if cfg.Monitor.Window, err = parseDuration("MONITOR_WINDOW", env.getenv("MONITOR_WINDOW", ""), "5m"); err != nil {
 		return Config{}, err
 	}
@@ -386,8 +402,30 @@ func (cfg Config) validate() error {
 		if cfg.Auth.JWTSecret == "change-me-jwt-secret" || cfg.Auth.JWTSecret == "change-me" {
 			return fmt.Errorf("JWT_SECRET must be changed when APP_ENV is production")
 		}
+		if cfg.SSO.SecretsKey != "" && (cfg.SSO.SecretsKey == "change-me" || len(cfg.SSO.SecretsKey) < 32) {
+			return fmt.Errorf("SSO_SECRETS_KEY must be at least 32 characters when APP_ENV is production")
+		}
+		if cfg.SSO.Issuer != "" {
+			parsed, err := url.Parse(cfg.SSO.Issuer)
+			if err != nil || parsed.Scheme == "" || parsed.Host == "" || (parsed.Scheme != "https" && parsed.Scheme != "http") {
+				return fmt.Errorf("SSO_ISSUER must be an absolute http(s) URL")
+			}
+		}
 	}
 	return nil
+}
+
+func parseBoolDefault(raw string, fallback bool) bool {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "":
+		return fallback
+	case "1", "true", "yes", "on":
+		return true
+	case "0", "false", "no", "off":
+		return false
+	default:
+		return fallback
+	}
 }
 
 func splitCSV(value string) []string {

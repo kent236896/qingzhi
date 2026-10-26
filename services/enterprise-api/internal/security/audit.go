@@ -67,6 +67,8 @@ func moduleOf(path string) string {
 	switch {
 	case strings.Contains(path, "/system/settings"):
 		return "系统配置"
+	case strings.Contains(path, "/sso/"):
+		return "身份认证"
 	case strings.Contains(path, "/security/policy"):
 		return "安全策略"
 	case strings.Contains(path, "/dict"):

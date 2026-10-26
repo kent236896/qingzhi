@@ -24,6 +24,7 @@ import (
 	"qingzhi/enterprise-api/internal/response"
 	"qingzhi/enterprise-api/internal/security"
 	"qingzhi/enterprise-api/internal/settings"
+	"qingzhi/enterprise-api/internal/sso"
 )
 
 // Dependencies are the runtime collaborators of the HTTP server.
@@ -38,6 +39,7 @@ type Dependencies struct {
 	Dict      *dict.Service
 	Security  *security.Service
 	Settings  *settings.Service
+	SSO       *sso.Service
 	Monitor   *monitor.Service
 	Tokens    *auth.TokenIssuer
 }
@@ -89,6 +91,14 @@ func New(deps Dependencies) *Server {
 		Tokens:   deps.Tokens,
 	}
 	authHandler.RegisterPublic(api)
+	ssoHandler := handler.SSO{
+		Logger:   deps.Logger,
+		Database: deps.Database,
+		Service:  deps.SSO,
+		Security: deps.Security,
+		Tokens:   deps.Tokens,
+	}
+	ssoHandler.RegisterPublic(api)
 
 	protected := api.Group("")
 	enforce := deps.Tokens != nil && deps.Identity != nil
@@ -131,6 +141,7 @@ func New(deps Dependencies) *Server {
 		Logger:  deps.Logger,
 		Service: deps.Settings,
 	}.Register(protected, enforce)
+	ssoHandler.Register(protected, enforce)
 
 	engine.NoRoute(func(c *gin.Context) {
 		response.Fail(c, http.StatusNotFound, response.CodeNotFound, "资源不存在", nil)

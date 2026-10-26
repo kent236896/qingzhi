@@ -1,6 +1,8 @@
 package identity
 
 import (
+	"crypto/rand"
+	"encoding/base64"
 	"fmt"
 	"unicode/utf8"
 
@@ -36,4 +38,13 @@ func validatePassword(password string) error {
 		return invalid(fmt.Sprintf("密码长度必须在 %d 到 %d 个字符之间", minPasswordLen, maxPasswordLen))
 	}
 	return nil
+}
+
+func randomPassword() (string, error) {
+	buf := make([]byte, 24)
+	if _, err := rand.Read(buf); err != nil {
+		return "", err
+	}
+	// Keep within password length bounds while remaining high-entropy.
+	return base64.RawURLEncoding.EncodeToString(buf)[:32], nil
 }

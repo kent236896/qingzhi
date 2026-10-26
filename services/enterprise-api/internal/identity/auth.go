@@ -106,6 +106,136 @@ func (s *Service) Authenticate(ctx context.Context, input LoginInput) (LoginResu
 	return LoginResult{User: user, TenantID: tenantID, Access: access}, nil
 }
 
+// LoginFederated establishes a local session for an already-mapped external identity.
+// It does not accept external claims for roles or permissions.
+func (s *Service) LoginFederated(ctx context.Context, userID, tenantID, loginIP string) (LoginResult, error) {
+	userID = strings.TrimSpace(userID)
+	tenantID = strings.TrimSpace(tenantID)
+	if userID == "" {
+		return LoginResult{}, unauthorized("外部身份未映射到本平台账号")
+	}
+	user, err := s.store.FindUser(ctx, userID)
+	if errors.Is(err, ErrNotFound) {
+		return LoginResult{}, unauthorized("外部身份未映射到本平台账号")
+	}
+	if err != nil {
+		return LoginResult{}, err
+	}
+	if user.Status != StatusNormal {
+		return LoginResult{}, unauthorized("账号已停用")
+	}
+
+	memberships, err := s.store.ListMembershipsByUser(ctx, user.ID)
+	if err != nil {
+		return LoginResult{}, err
+	}
+	active := make([]TenantMembership, 0, len(memberships))
+	for _, membership := range memberships {
+		if membership.Status != StatusNormal {
+			continue
+		}
+		tenant, err := s.store.FindTenant(ctx, membership.TenantID)
+		if errors.Is(err, ErrNotFound) {
+			continue
+		}
+		if err != nil {
+			return LoginResult{}, err
+		}
+		if tenant.Status != StatusNormal {
+			continue
+		}
+		active = append(active, membership)
+	}
+	if len(active) == 0 {
+		return LoginResult{}, unauthorized("账号未加入可用租户")
+	}
+	if tenantID == "" {
+		if len(active) != 1 {
+			return LoginResult{}, invalid("请选择租户后登录")
+		}
+		tenantID = active[0].TenantID
+	} else {
+		found := false
+		for _, membership := range active {
+			if membership.TenantID == tenantID {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return LoginResult{}, unauthorized("账号不属于该租户")
+		}
+	}
+
+	access, err := s.LoadSessionAccess(ctx, user.ID, tenantID)
+	if err != nil {
+		return LoginResult{}, err
+	}
+	_ = s.store.UpdateUserLogin(ctx, user.ID, strings.TrimSpace(loginIP), time.Now().UTC())
+	user.PasswordHash = ""
+	return LoginResult{User: user, TenantID: tenantID, Access: access}, nil
+}
+
+// CreateFederatedUser creates a minimum-privilege local account for an external subject.
+// Callers must never grant admin roles from external claims.
+func (s *Service) CreateFederatedUser(ctx context.Context, username, nickname, email, tenantID string) (User, error) {
+	password, err := randomPassword()
+	if err != nil {
+		return User{}, err
+	}
+	user, err := s.CreateUser(ctx, CreateUserInput{
+		Username: username,
+		Password: password,
+		Nickname: nickname,
+		Email:    email,
+		Remark:   "federated",
+	})
+	if err != nil {
+		return User{}, err
+	}
+	if strings.TrimSpace(tenantID) != "" {
+		if err := s.EnsureTenantMembership(ctx, tenantID, user.ID); err != nil {
+			return User{}, err
+		}
+	}
+	return user, nil
+}
+
+// EnsureTenantMembership links a user to a tenant without roles or department posts.
+func (s *Service) EnsureTenantMembership(ctx context.Context, tenantID, userID string) error {
+	tenantID = strings.TrimSpace(tenantID)
+	userID = strings.TrimSpace(userID)
+	if tenantID == "" || userID == "" {
+		return invalid("租户或账号标识不合法")
+	}
+	return s.store.Transaction(ctx, func(tx Store) error {
+		if _, err := tx.FindTenant(ctx, tenantID); errors.Is(err, ErrNotFound) {
+			return notFound("租户不存在")
+		} else if err != nil {
+			return err
+		}
+		if _, err := tx.FindUser(ctx, userID); errors.Is(err, ErrNotFound) {
+			return notFound("账号不存在")
+		} else if err != nil {
+			return err
+		}
+		if _, err := tx.FindMembership(ctx, tenantID, userID); err == nil {
+			return nil
+		} else if !errors.Is(err, ErrNotFound) {
+			return err
+		}
+		now := time.Now().UTC()
+		return tx.InsertMembership(ctx, TenantMembership{
+			ID:         newID(),
+			TenantID:   tenantID,
+			UserID:     userID,
+			Status:     StatusNormal,
+			CreateTime: now,
+			UpdateTime: now,
+		})
+	})
+}
+
 // LoadSessionAccess loads roles, permissions and data scope for a user in a tenant.
 func (s *Service) LoadSessionAccess(ctx context.Context, userID, tenantID string) (SessionAccess, error) {
 	var result SessionAccess

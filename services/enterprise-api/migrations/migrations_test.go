@@ -293,3 +293,62 @@ func TestPostMigrationCreatesTable(t *testing.T) {
 		t.Fatal("post migration does not create sys_posts")
 	}
 }
+
+func TestSSOOIDCRPMigration(t *testing.T) {
+	content, err := fs.ReadFile(FS, "000023_sso_oidc_rp.up.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	upper := strings.ToUpper(string(content))
+	for _, table := range []string{"SYS_SSO_OIDC_AUTH_REQUESTS", "SYS_SSO_LOGIN_TICKETS"} {
+		if !strings.Contains(upper, "CREATE TABLE "+table) {
+			t.Fatalf("oidc rp migration does not create %s", table)
+		}
+	}
+	for _, col := range []string{"DEFAULT_TENANT_ID", "FRONTEND_BASE_URL"} {
+		if !strings.Contains(upper, col) {
+			t.Fatalf("oidc rp migration missing %s", col)
+		}
+	}
+	down, err := fs.ReadFile(FS, "000023_sso_oidc_rp.down.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(strings.ToUpper(string(down)), "DROP TABLE IF EXISTS SYS_SSO_LOGIN_TICKETS") {
+		t.Fatal("oidc rp down migration incomplete")
+	}
+}
+
+func TestSSOFoundationMigration(t *testing.T) {
+	content, err := fs.ReadFile(FS, "000022_sso_foundation.up.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	upper := strings.ToUpper(string(content))
+	for _, table := range []string{
+		"SYS_SSO_SETTINGS",
+		"SYS_SSO_SECRETS",
+		"SYS_SSO_PROVIDERS",
+		"SYS_SSO_OAUTH_CLIENTS",
+		"SYS_SSO_SAML_SPS",
+		"SYS_SSO_IDENTITY_LINKS",
+		"SYS_SSO_AUTH_EVENTS",
+	} {
+		if !strings.Contains(upper, "CREATE TABLE "+table) {
+			t.Fatalf("sso foundation migration does not create %s", table)
+		}
+	}
+	text := string(content)
+	for _, piece := range []string{"系统安全", "身份认证与单点登录", "system:sso:overview", "super_admin"} {
+		if !strings.Contains(text, piece) {
+			t.Fatalf("sso foundation migration missing %s", piece)
+		}
+	}
+	down, err := fs.ReadFile(FS, "000022_sso_foundation.down.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(strings.ToUpper(string(down)), "DROP TABLE IF EXISTS SYS_SSO_AUTH_EVENTS") {
+		t.Fatal("sso foundation down migration does not drop tables")
+	}
+}

@@ -21,6 +21,7 @@ import (
 	"qingzhi/enterprise-api/internal/security"
 	"qingzhi/enterprise-api/internal/server"
 	"qingzhi/enterprise-api/internal/settings"
+	"qingzhi/enterprise-api/internal/sso"
 	"qingzhi/enterprise-api/internal/weknora"
 )
 
@@ -59,6 +60,7 @@ func run() int {
 	var dictService *dict.Service
 	var securityService *security.Service
 	var settingsService *settings.Service
+	var ssoService *sso.Service
 	var alertStore monitor.AlertStore
 	db, err := database.OpenPostgres(cfg.Postgres)
 	if err != nil {
@@ -109,6 +111,20 @@ func run() int {
 		})
 		dictService = dict.NewService(dict.NewGormStore(db.GORM()))
 		securityService = security.NewService(security.NewGormStore(db.GORM()))
+		ssoVault, vaultErr := sso.NewVault(cfg.SSO.SecretsKey, cfg.Auth.JWTSecret)
+		if vaultErr != nil {
+			log.Warn("sso vault unavailable", slog.String("component", "app"), slog.String("error", vaultErr.Error()))
+		}
+		ssoService = sso.NewService(sso.NewGormStore(db.GORM()), ssoVault)
+		ssoService.SetIdentity(identityService)
+		frontendBase := cfg.SSO.FrontendBaseURL
+		if frontendBase == "" && len(cfg.CORS.AllowedOrigins) > 0 {
+			frontendBase = cfg.CORS.AllowedOrigins[0]
+		}
+		ssoService.SetRuntime(sso.RuntimeConfig{
+			FrontendBaseURL: frontendBase,
+			DefaultTenantID: cfg.SSO.DefaultTenantID,
+		})
 		alertStore = monitor.NewGormStore(db.GORM())
 		defer func() {
 			if closeErr := db.Close(); closeErr != nil {
@@ -142,6 +158,7 @@ func run() int {
 		Dict:      dictService,
 		Security:  securityService,
 		Settings:  settingsService,
+		SSO:       ssoService,
 		Monitor:   monitorService,
 		Tokens:    tokens,
 	})

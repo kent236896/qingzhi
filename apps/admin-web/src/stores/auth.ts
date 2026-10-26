@@ -64,6 +64,11 @@ export const useAuthStore = defineStore('auth', () => {
     return response.data
   }
 
+  function applyExternalLogin(result: LoginResult) {
+    applySession(result)
+    bootstrapped.value = true
+  }
+
   async function restore() {
     if (!token.value) {
       bootstrapped.value = true
@@ -108,6 +113,7 @@ export const useAuthStore = defineStore('auth', () => {
     isAuthenticated,
     displayName,
     login,
+    applyExternalLogin,
     restore,
     logout,
     applyProfile,
