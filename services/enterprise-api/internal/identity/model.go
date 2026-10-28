@@ -23,23 +23,24 @@ const (
 
 // User is a global account. PasswordHash is persisted but never serialized to clients.
 type User struct {
-	ID           string     `json:"id"`
-	Username     string     `json:"username"`
-	PasswordHash string     `json:"-"`
-	Nickname     string     `json:"nickname"`
-	Remark       string     `json:"remark"`
-	Email        string     `json:"email"`
-	Mobile       string     `json:"mobile"`
-	Sex          int        `json:"sex"`
-	Avatar       string     `json:"avatar"`
-	Status       int        `json:"status"`
-	LoginIP      string     `json:"login_ip"`
-	LoginDate    *time.Time `json:"login_date"`
-	Creator      string     `json:"creator"`
-	CreateTime   time.Time  `json:"create_time"`
-	Updater      string     `json:"updater"`
-	UpdateTime   time.Time  `json:"update_time"`
-	Deleted      bool       `json:"deleted"`
+	ID                   string     `json:"id"`
+	Username             string     `json:"username"`
+	PasswordHash         string     `json:"-"`
+	Nickname             string     `json:"nickname"`
+	Remark               string     `json:"remark"`
+	Email                string     `json:"email"`
+	Mobile               string     `json:"mobile"`
+	Sex                  int        `json:"sex"`
+	Avatar               string     `json:"avatar"`
+	Status               int        `json:"status"`
+	LocalPasswordEnabled bool       `json:"local_password_enabled"`
+	LoginIP              string     `json:"login_ip"`
+	LoginDate            *time.Time `json:"login_date"`
+	Creator              string     `json:"creator"`
+	CreateTime           time.Time  `json:"create_time"`
+	Updater              string     `json:"updater"`
+	UpdateTime           time.Time  `json:"update_time"`
+	Deleted              bool       `json:"deleted"`
 }
 
 // Tenant is an isolation boundary for organizations and memberships.

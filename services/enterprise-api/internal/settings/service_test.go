@@ -20,7 +20,7 @@ func (s *memoryStore) Save(_ context.Context, item Record) error {
 func TestEnsureDoesNotOverridePageSettings(t *testing.T) {
 	store := &memoryStore{item: Record{BaseURL: "http://saved.example", APIKey: "saved-key"}}
 	svc := NewService(store, nil)
-	got, err := svc.Ensure(context.Background(), "http://env.example", "env-key")
+	got, err := svc.Ensure(context.Background(), "http://env.example", "env-key", "10001")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -32,12 +32,27 @@ func TestEnsureDoesNotOverridePageSettings(t *testing.T) {
 func TestEnsureSeedsEmptyRowFromEnv(t *testing.T) {
 	store := &memoryStore{}
 	svc := NewService(store, nil)
-	got, err := svc.Ensure(context.Background(), "http://env.example/", "env-key")
+	got, err := svc.Ensure(context.Background(), "http://env.example/", "env-key", "10000")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got.BaseURL != "http://env.example" || got.APIKey != "env-key" || got.UpdatedBy != "环境变量" {
 		t.Fatalf("seed = %#v", got)
+	}
+	if got.WeKnoraTenantID != "10000" {
+		t.Fatalf("tenant id = %q", got.WeKnoraTenantID)
+	}
+}
+
+func TestEnsureSeedsDefaultTenantIDWhenBlank(t *testing.T) {
+	store := &memoryStore{item: Record{BaseURL: "http://saved.example", APIKey: "saved-key"}}
+	svc := NewService(store, nil)
+	got, err := svc.Ensure(context.Background(), "", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.WeKnoraTenantID != DefaultWeKnoraTenantID {
+		t.Fatalf("tenant id = %q", got.WeKnoraTenantID)
 	}
 }
 

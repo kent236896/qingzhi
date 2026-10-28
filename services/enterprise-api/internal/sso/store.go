@@ -11,8 +11,6 @@ type Store interface {
 	SaveSettings(ctx context.Context, item Settings) error
 
 	CountProviders(ctx context.Context, protocol string) (int64, int64, error)
-	CountOAuthClients(ctx context.Context) (int64, int64, error)
-	CountSamlSPs(ctx context.Context) (int64, int64, error)
 	CountIdentityLinks(ctx context.Context) (int64, error)
 	CountAuthEventsSince(ctx context.Context, result, eventTypePrefix string, since time.Time) (int64, error)
 	ListRecentAuthEvents(ctx context.Context, result string, limit int) ([]AuthEvent, error)
@@ -23,18 +21,6 @@ type Store interface {
 	CreateProvider(ctx context.Context, item Provider, secretID *string) (Provider, error)
 	UpdateProvider(ctx context.Context, item Provider, secretID *string) (Provider, error)
 	SetProviderStatus(ctx context.Context, id, status string) error
-
-	ListOAuthClients(ctx context.Context, query ListQuery) ([]OAuthClient, int64, error)
-	GetOAuthClient(ctx context.Context, id string) (OAuthClient, error)
-	CreateOAuthClient(ctx context.Context, item OAuthClient, secretID *string) (OAuthClient, error)
-	UpdateOAuthClient(ctx context.Context, item OAuthClient, secretID *string) (OAuthClient, error)
-	SetOAuthClientStatus(ctx context.Context, id, status string) error
-
-	ListSamlSPs(ctx context.Context, query ListQuery) ([]SamlSP, int64, error)
-	GetSamlSP(ctx context.Context, id string) (SamlSP, error)
-	CreateSamlSP(ctx context.Context, item SamlSP) (SamlSP, error)
-	UpdateSamlSP(ctx context.Context, item SamlSP) (SamlSP, error)
-	SetSamlSPStatus(ctx context.Context, id, status string) error
 
 	ListIdentityLinks(ctx context.Context, query ListQuery) ([]IdentityLink, int64, error)
 	FindIdentityLink(ctx context.Context, providerID, externalSubject string) (IdentityLink, error)

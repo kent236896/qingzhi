@@ -7,14 +7,13 @@ import PermissionLogsView from '@/views/PermissionLogsView.vue'
 import SecurityPolicyView from '@/views/SecurityPolicyView.vue'
 import SsoOverviewView from '@/views/sso/OverviewView.vue'
 import SsoProvidersView from '@/views/sso/ProvidersView.vue'
-import SsoOAuthClientsView from '@/views/sso/OAuthClientsView.vue'
-import SsoSamlSpsView from '@/views/sso/SamlSpsView.vue'
 import SsoIdentityLinksView from '@/views/sso/IdentityLinksView.vue'
 import SsoAuthEventsView from '@/views/sso/AuthEventsView.vue'
 import HomeView from '@/views/HomeView.vue'
 import KnowledgeDetailView from '@/views/KnowledgeDetailView.vue'
 import KnowledgeView from '@/views/KnowledgeView.vue'
 import SettingsView from '@/views/SettingsView.vue'
+import MemorySettingsView from '@/views/MemorySettingsView.vue'
 import LoginView from '@/views/LoginView.vue'
 import SsoCallbackView from '@/views/SsoCallbackView.vue'
 import MonitorView from '@/views/MonitorView.vue'
@@ -97,6 +96,7 @@ export const router = createRouter({
         },
         {
           path: 'models',
+          name: 'models',
           redirect: { name: 'settings' },
         },
         {
@@ -106,13 +106,16 @@ export const router = createRouter({
           meta: { title: '系统配置', breadcrumb: ['系统管理', '系统配置'] },
         },
         {
+          path: 'settings/memory',
+          name: 'settings-memory',
+          component: MemorySettingsView,
+          meta: { title: '长期记忆', breadcrumb: ['系统管理', '长期记忆'] },
+        },
+        {
           path: 'knowledge/:id',
           name: 'knowledge-detail',
           component: KnowledgeDetailView,
-          meta: {
-            title: '知识库',
-            breadcrumb: [{ title: '知识管理', to: { name: 'knowledge' } }, '知识库'],
-          },
+          meta: { title: '知识库详情', breadcrumb: ['知识管理', '知识库详情'] },
         },
         {
           path: 'dicts',
@@ -150,29 +153,12 @@ export const router = createRouter({
           component: SecurityPolicyView,
           meta: { title: '安全策略', breadcrumb: ['安全审计', '安全策略'] },
         },
-        {
-          path: 'security/sso',
-          name: 'sso-overview',
-          component: SsoOverviewView,
-          meta: { title: '身份认证与单点登录', breadcrumb: ['系统安全', '身份认证与单点登录'] },
-        },
+        // SSO pages: declare longer paths BEFORE the overview path so ranking stays unambiguous.
         {
           path: 'security/sso/providers',
           name: 'sso-providers',
           component: SsoProvidersView,
           meta: { title: '外部身份提供方', breadcrumb: ['系统安全', '外部身份提供方'] },
-        },
-        {
-          path: 'security/sso/oauth-clients',
-          name: 'sso-oauth-clients',
-          component: SsoOAuthClientsView,
-          meta: { title: 'OAuth 客户端', breadcrumb: ['系统安全', 'OAuth 客户端'] },
-        },
-        {
-          path: 'security/sso/saml-sps',
-          name: 'sso-saml-sps',
-          component: SsoSamlSpsView,
-          meta: { title: 'SAML 服务提供方', breadcrumb: ['系统安全', 'SAML 服务提供方'] },
         },
         {
           path: 'security/sso/identity-links',
@@ -185,6 +171,12 @@ export const router = createRouter({
           name: 'sso-auth-events',
           component: SsoAuthEventsView,
           meta: { title: '认证审计', breadcrumb: ['系统安全', '认证审计'] },
+        },
+        {
+          path: 'security/sso',
+          name: 'sso-overview',
+          component: SsoOverviewView,
+          meta: { title: '身份认证与单点登录', breadcrumb: ['系统安全', '身份认证与单点登录'] },
         },
         {
           path: ':pathMatch(.*)*',

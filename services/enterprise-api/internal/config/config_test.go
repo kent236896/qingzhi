@@ -28,6 +28,32 @@ func TestLoadFromEnvironment(t *testing.T) {
 	if cfg.Postgres.Password != "change-me" {
 		t.Fatal("password was not loaded")
 	}
+	if !cfg.Bootstrap.Enabled {
+		t.Fatal("bootstrap should be enabled by default")
+	}
+}
+
+func TestLoadBootstrapOverrides(t *testing.T) {
+	setRequiredEnv(t)
+	t.Setenv("ENV_FILE", "")
+	t.Setenv("BOOTSTRAP_ENABLED", "false")
+	t.Setenv("BOOTSTRAP_TENANT_NAME", "演示租户")
+	t.Setenv("BOOTSTRAP_ADMIN_USERNAME", "rootadmin")
+	t.Setenv("BOOTSTRAP_ADMIN_PASSWORD", "Root@123456")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.Bootstrap.Enabled {
+		t.Fatal("bootstrap should be disabled")
+	}
+	if cfg.Bootstrap.TenantName != "演示租户" || cfg.Bootstrap.AdminUsername != "rootadmin" {
+		t.Fatalf("bootstrap = %+v", cfg.Bootstrap)
+	}
+	if len(cfg.Bootstrap.Secrets()) != 1 || cfg.Bootstrap.Secrets()[0] != "Root@123456" {
+		t.Fatalf("secrets = %#v", cfg.Bootstrap.Secrets())
+	}
 }
 
 func TestLoadMissingRequired(t *testing.T) {

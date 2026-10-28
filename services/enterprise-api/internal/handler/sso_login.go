@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"qingzhi/enterprise-api/internal/auth"
 	"qingzhi/enterprise-api/internal/identity"
 	"qingzhi/enterprise-api/internal/response"
 	"qingzhi/enterprise-api/internal/security"
@@ -19,10 +20,11 @@ import (
 func (h SSO) RegisterPublic(group *gin.RouterGroup) {
 	group.GET("/sso/login-options", h.loginOptions)
 	group.GET("/sso/oidc/start", h.startOIDC)
-	group.GET("/sso/oauth2/start", h.startOAuth2)
 	group.GET("/sso/oidc/callback", h.callbackOIDC)
-	group.GET("/sso/oauth2/callback", h.callbackOAuth2)
 	group.POST("/sso/oidc/exchange", h.exchangeTicket)
+	group.GET("/sso/saml/start", h.startSAML)
+	group.POST("/sso/saml/acs", h.acsSAML)
+	group.GET("/sso/saml/metadata", h.samlMetadata)
 }
 
 func (h SSO) loginOptions(c *gin.Context) {
@@ -44,10 +46,6 @@ func (h SSO) startOIDC(c *gin.Context) {
 	h.startExternal(c)
 }
 
-func (h SSO) startOAuth2(c *gin.Context) {
-	h.startExternal(c)
-}
-
 func (h SSO) startExternal(c *gin.Context) {
 	if !h.available(c) {
 		return
@@ -62,6 +60,7 @@ func (h SSO) startExternal(c *gin.Context) {
 		providerID,
 		c.Query("redirect"),
 		c.Query("tenant_id"),
+		c.Query("frontend_base"),
 	)
 	if err != nil {
 		h.write(c, nil, err)
@@ -71,10 +70,6 @@ func (h SSO) startExternal(c *gin.Context) {
 }
 
 func (h SSO) callbackOIDC(c *gin.Context) {
-	h.callbackExternal(c)
-}
-
-func (h SSO) callbackOAuth2(c *gin.Context) {
 	h.callbackExternal(c)
 }
 
@@ -88,10 +83,10 @@ func (h SSO) callbackExternal(c *gin.Context) {
 		if desc != "" {
 			msg = desc
 		}
-		h.redirectFrontend(c, "/", "", msg)
+		h.redirectFrontend(c, "/", "", msg, "")
 		return
 	}
-	ticket, redirectPath, err := h.Service.CompleteExternalLogin(
+	ticket, redirectPath, frontendBase, err := h.Service.CompleteExternalLogin(
 		c.Request.Context(),
 		c.Query("code"),
 		c.Query("state"),
@@ -103,10 +98,10 @@ func (h SSO) callbackExternal(c *gin.Context) {
 		if errors.As(err, &domain) && domain.Message != "" {
 			msg = domain.Message
 		}
-		h.redirectFrontend(c, redirectPath, "", msg)
+		h.redirectFrontend(c, redirectPath, "", msg, frontendBase)
 		return
 	}
-	h.redirectFrontend(c, redirectPath, ticket, "")
+	h.redirectFrontend(c, redirectPath, ticket, "", frontendBase)
 }
 
 func (h SSO) exchangeTicket(c *gin.Context) {
@@ -129,7 +124,7 @@ func (h SSO) exchangeTicket(c *gin.Context) {
 		return
 	}
 	h.recordSSOLogin(c, result, security.LoginSuccess, "外部身份登录成功")
-	token, expires, err := h.Tokens.Issue(result.User.ID, result.User.Username, result.TenantID, time.Now().UTC())
+	token, expires, err := h.Tokens.IssueWithMethod(result.User.ID, result.User.Username, result.TenantID, auth.AuthMethodSSO, time.Now().UTC())
 	if err != nil {
 		if h.Logger != nil {
 			h.Logger.Error("issue federated token failed", slog.String("component", "app"), slog.String("error", err.Error()))
@@ -153,10 +148,15 @@ func (h SSO) exchangeTicket(c *gin.Context) {
 	})
 }
 
-func (h SSO) redirectFrontend(c *gin.Context, path, ticket, errMsg string) {
-	target, err := h.Service.FrontendRedirectURL(c.Request.Context(), path, ticket, errMsg)
+func (h SSO) redirectFrontend(c *gin.Context, path, ticket, errMsg, frontendBase string) {
+	target, err := h.Service.FrontendRedirectURL(c.Request.Context(), path, ticket, errMsg, frontendBase)
 	if err != nil {
-		response.Fail(c, http.StatusServiceUnavailable, response.CodeNotReady, "前端回调地址未配置", nil)
+		msg := "前端回调地址未配置"
+		var domain *sso.Error
+		if errors.As(err, &domain) && domain.Message != "" {
+			msg = domain.Message
+		}
+		response.Fail(c, http.StatusServiceUnavailable, response.CodeNotReady, msg, nil)
 		return
 	}
 	// Prevent open redirect amplification: FrontendRedirectURL already validates base URL.
@@ -165,6 +165,64 @@ func (h SSO) redirectFrontend(c *gin.Context, path, ticket, errMsg string) {
 		return
 	}
 	c.Redirect(http.StatusFound, target)
+}
+
+
+func (h SSO) startSAML(c *gin.Context) {
+	if !h.available(c) {
+		return
+	}
+	providerID := strings.TrimSpace(c.Query("provider_id"))
+	if providerID == "" {
+		response.Fail(c, http.StatusBadRequest, response.CodeInvalidParams, "缺少提供方", nil)
+		return
+	}
+	authURL, err := h.Service.StartSAMLLogin(
+		c.Request.Context(),
+		providerID,
+		c.Query("redirect"),
+		c.Query("tenant_id"),
+		c.Query("frontend_base"),
+	)
+	if err != nil {
+		h.write(c, nil, err)
+		return
+	}
+	c.Redirect(http.StatusFound, authURL)
+}
+
+func (h SSO) acsSAML(c *gin.Context) {
+	if !h.available(c) {
+		return
+	}
+	ticket, redirectPath, frontendBase, err := h.Service.CompleteSAMLLogin(c.Request.Context(), c.Request, c.ClientIP())
+	if err != nil {
+		msg := "外部登录失败"
+		var domain *sso.Error
+		if errors.As(err, &domain) && domain.Message != "" {
+			msg = domain.Message
+		}
+		h.redirectFrontend(c, redirectPath, "", msg, frontendBase)
+		return
+	}
+	h.redirectFrontend(c, redirectPath, ticket, "", frontendBase)
+}
+
+func (h SSO) samlMetadata(c *gin.Context) {
+	if !h.available(c) {
+		return
+	}
+	providerID := strings.TrimSpace(c.Query("provider_id"))
+	if providerID == "" {
+		response.Fail(c, http.StatusBadRequest, response.CodeInvalidParams, "缺少提供方", nil)
+		return
+	}
+	body, err := h.Service.SAMLMetadataXML(c.Request.Context(), providerID)
+	if err != nil {
+		h.write(c, nil, err)
+		return
+	}
+	c.Data(http.StatusOK, "application/samlmetadata+xml", body)
 }
 
 func (h SSO) writeLogin(c *gin.Context, err error) {

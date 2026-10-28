@@ -1,6 +1,6 @@
 # 擎知
 
-擎知是一套通用企业级后台管理系统的工程底座。当前阶段包含管理后台、Go API、PostgreSQL / Redis 开发环境，以及统一的配置、日志、错误、健康检查和 OpenAPI 机制。
+擎知是一套通用企业级后台管理系统的工程底座。当前阶段包含管理后台、用户工作台前端脚手架、Go API、PostgreSQL / Redis 开发环境，以及统一的配置、日志、错误、健康检查和 OpenAPI 机制。
 
 当前可以维护账号、租户、部门、岗位、菜单、角色和字典，并支持 JWT 登录、菜单授权、数据权限、操作审计、登录日志、权限变更记录、安全策略、系统监控和异常告警。页头账号菜单可以查看系统版本，并修改当前登录人的个人资料和密码。默认管理员（迁移后、且库中已有租户）：`admin` / `Admin@123456`。
 
@@ -20,7 +20,7 @@ Docker、GNU Make、本机 PostgreSQL 和 Redis 不是编译前端或后端单�
 
 ## 技术版本
 
-前端（`apps/admin-web`，由 `pnpm-lock.yaml` 锁定）：
+前端（`apps/admin-web` 与 `apps/user-workbench`，各自目录内 `pnpm-lock.yaml` 锁定）：
 
 | 依赖 | 版本 |
 | --- | --- |
@@ -59,10 +59,12 @@ Docker、GNU Make、本机 PostgreSQL 和 Redis 不是编译前端或后端单�
 Copy-Item .env.example .env
 cd apps\admin-web
 pnpm install
+cd ..\user-workbench
+pnpm install
 cd ..\..
 ```
 
-`.env` 已被 Git 忽略。`change-me` 只是本机示例密码。
+`.env` 已被 Git 忽略。`change-me` 只是本机示例密码。用户工作台说明见 [apps/user-workbench/README.md](apps/user-workbench/README.md)。
 
 ## 启动与停止
 
@@ -108,13 +110,19 @@ cd apps\admin-web
 pnpm dev
 ```
 
+```powershell
+cd apps\user-workbench
+pnpm dev
+```
+
 - 后端：<http://127.0.0.1:8080>
-- 前端：<http://127.0.0.1:5173>
+- 管理后台：<http://127.0.0.1:5173>
+- 用户工作台：<http://127.0.0.1:5174>（脚手架阶段，业务未接入）
 - 存活检查：`GET /api/v1/health/live`
 - 就绪检查：`GET /api/v1/health/ready`
 - OpenAPI：`GET /api/v1/openapi.json`
 
-前端开发服务器把 `/api` 代理到后端。首页会请求这两个健康检查。
+各前端开发服务器把 `/api` 代理到后端。管理后台首页会请求健康检查。
 
 ## 检查与测试
 
@@ -133,6 +141,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\check-infra.ps1
 - [API 约定](docs/api-conventions.md)
 - [开发](docs/development.md)
 - [测试](docs/testing.md)
+- [SSO 架构](docs/sso-architecture.md)
+- [对接 Keycloak（擎知作为客户端）](docs/sso-keycloak.md)
+- [WeKnora 长期记忆与终端用户身份](docs/weknora-memory.md)
 
 知识管理是独立菜单。它把文档交给本机配置的 WeKnora，并在启用 Wiki 时展示图谱。上传限制来自服务端配置。新建知识库使用「系统配置」里的场景默认模型。WeKnora 地址和 API Key 也在「系统配置」填写。
 

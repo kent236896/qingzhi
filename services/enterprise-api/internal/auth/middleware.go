@@ -53,6 +53,7 @@ func (g Guard) Authenticate() gin.HandlerFunc {
 			Username:    session.Username,
 			Nickname:    session.Nickname,
 			TenantID:    session.TenantID,
+			AuthMethod:  claims.AuthMethod,
 			Permissions: permissions,
 			Access:      session.Access,
 		})

@@ -16,6 +16,10 @@ Copy-Item .env.example .env
 
 后端从当前目录的 `.env`、上一级或上两级 `.env` 读取变量，且不覆盖已经存在的进程环境变量。设置空的 `ENV_FILE` 可以禁止读取文件。
 
+首次启动且库中尚无租户时，API 会按 `BOOTSTRAP_*` 创建默认租户、主体组织和超级管理员。未设置的字段（租户 ID/编码、管理员用户名与密码等）会随机生成，并在控制台打印一次。`BOOTSTRAP_ENABLED=false` 可关闭该行为。已有租户时跳过，不重复创建。
+
+SSO 回调用的前端基址在管理端「身份认证与单点登录」配置，默认可取当前浏览器地址；登录发起时也会自动附带 `window.location.origin`（须出现在 `CORS_ALLOWED_ORIGINS`）。一般不必再写 `SSO_FRONTEND_BASE_URL`。以 Keycloak 作为 IdP、擎知作为 OIDC 客户端的完整联调步骤见 [sso-keycloak.md](sso-keycloak.md)。
+
 ## 基础设施
 
 ```powershell
@@ -44,6 +48,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\migrate.ps1 versio
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\migrate.ps1 down
 ```
 
+WeKnora 长期记忆与终端用户身份说明见 [weknora-memory.md](weknora-memory.md)。
+
 `up` 应用全部未执行迁移。`down` 只回滚最近一步。`version` 查看当前版本。`000001_baseline` 不创建数据表。`000002_identity` 创建账号、租户和部门表。`000003_sys_prefix` 给这些表加上 `sys_` 前缀并调整字段。`000004_sys_posts` 创建岗位表 `sys_posts`。`000005_sys_menus` 创建菜单表 `sys_menus`。`000006_sys_menus_seed` 写入默认的三级菜单。`000007_sys_roles` 创建角色及相关关联表。`000008_auth_data_scope` 增加角色数据范围、`sys_role_depts`，并初始化管理员（`admin` / `Admin@123456`，需库中已有租户）。`000009_menu_crud_buttons` 在业务菜单下写入增删改查按钮权限，并同步给已拥有父菜单的角色。`000010_sys_dicts` 创建 `sys_dict_types`、`sys_dict_data`，并给已拥有「系统管理」的角色挂上字典菜单。`000011_sys_security` 创建登录日志、操作审计、权限变更和安全策略，并给已拥有「系统管理」的角色挂上安全审计菜单。`000012_sys_monitor` 创建 `sys_monitor_alerts`，并给已拥有「系统管理」的角色挂上系统监控菜单。`000013_menu_names` 把业务菜单改成四个字，并把「首页」调整为一级菜单。`000014_organization_root` 为每个租户约束唯一主体组织，并给缺少组织任职的成员补上该主体组织。若某个租户已经有多个主体组织，这一步会失败，需要先人工整理。`000015_subsidiary_root` 标记每个租户的主体组织，子公司主体可以挂在集团主体下面。`000016_user_posts` 创建用户与岗位任职表。`000017_knowledge` 创建知识库相关表和「知识管理」菜单。`000018_model_bindings` 创建场景默认模型表 `sys_weknora_model_bindings`，并只给超级管理员挂上模型权限。`000020_model_menu_into_settings` 取消单独的「模型配置」菜单，把模型增删改查并入「系统配置」；没有填写 WeKnora 地址和 API Key 时，页面先引导填写这两项。`000019_system_settings` 创建 `sys_weknora_settings` 和「系统配置」菜单，同样只给超级管理员。WeKnora 使用官方 Go SDK。地址和 API Key 在「系统配置」填写；`WEKNORA_BASE_URL`（不要带 `/api/v1`）和 `WEKNORA_API_KEY` 只在这张表还是空的时候写入一次。向量、摘要和 Wiki 模型也在「系统配置」里绑定。上传限制仍用 `KB_*`，并需要把 `HTTP_WRITE_TIMEOUT`、`HTTP_REQUEST_TIMEOUT` 和 `HTTP_MAX_BODY_BYTES` 提高到能容纳文件的值。配置需提供 `JWT_SECRET`（至少 16 位）与可选 `JWT_EXPIRE`（默认 `24h`）。可选 `HTTP_REQUEST_TIMEOUT`、`HTTP_MAX_BODY_BYTES`、`HTTP_RATE_LIMIT_RPS`、`HTTP_RATE_LIMIT_BURST` 控制请求防护，`MONITOR_WINDOW` 与 `MONITOR_*` 控制告警阈值。
 
 ## 启动应用
@@ -55,7 +61,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\api-dev.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\web-dev.ps1
 ```
 
-后端监听 `http://127.0.0.1:8080`。前端开发服务器是 `http://127.0.0.1:5173`，并把 `/api` 代理到后端。
+后端监听 `http://127.0.0.1:8080`。管理后台开发服务器是 `http://127.0.0.1:5173`，用户工作台是 `http://127.0.0.1:5174`，二者都把 `/api` 代理到后端。
 
 也可以进入各自目录：
 
@@ -68,6 +74,14 @@ go run ./cmd/server
 cd apps\admin-web
 pnpm dev
 ```
+
+```powershell
+cd apps\user-workbench
+pnpm install
+pnpm dev
+```
+
+用户工作台已接入登录、个人中心与 AI 对话；命令与约定见 [apps/user-workbench/README.md](../apps/user-workbench/README.md)。对话接口见 [api-conventions.md](api-conventions.md) 与 [api-reuse-analysis.md](api-reuse-analysis.md)。
 
 ## 检查
 

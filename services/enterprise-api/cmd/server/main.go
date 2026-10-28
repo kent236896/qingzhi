@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"qingzhi/enterprise-api/internal/auth"
+	"qingzhi/enterprise-api/internal/chat"
 	"qingzhi/enterprise-api/internal/config"
 	"qingzhi/enterprise-api/internal/dict"
 	"qingzhi/enterprise-api/internal/identity"
@@ -61,6 +62,8 @@ func run() int {
 	var securityService *security.Service
 	var settingsService *settings.Service
 	var ssoService *sso.Service
+	var memoryService *weknora.MemoryService
+	var chatService *chat.Service
 	var alertStore monitor.AlertStore
 	db, err := database.OpenPostgres(cfg.Postgres)
 	if err != nil {
@@ -71,9 +74,46 @@ func run() int {
 	} else {
 		databasePinger = db
 		identityService = identity.NewService(identity.NewGormStore(db.GORM()))
+		if cfg.Bootstrap.Enabled {
+			bootCtx, bootCancel := context.WithTimeout(context.Background(), 30*time.Second)
+			bootResult, bootErr := identityService.BootstrapIfEmpty(bootCtx, identity.BootstrapInput{
+				TenantID:      cfg.Bootstrap.TenantID,
+				TenantName:    cfg.Bootstrap.TenantName,
+				TenantCode:    cfg.Bootstrap.TenantCode,
+				AdminUsername: cfg.Bootstrap.AdminUsername,
+				AdminPassword: cfg.Bootstrap.AdminPassword,
+				AdminNickname: cfg.Bootstrap.AdminNickname,
+			})
+			bootCancel()
+			if bootErr != nil {
+				log.Error("initial bootstrap failed",
+					slog.String("component", "app"),
+					slog.String("error", bootErr.Error()),
+				)
+			} else if bootResult.Created {
+				identity.PrintBootstrapCredentials(os.Stdout, bootResult)
+				log.Info("initial tenant and admin created",
+					slog.String("component", "app"),
+					slog.String("tenant_id", bootResult.TenantID),
+					slog.String("tenant_code", bootResult.TenantCode),
+					slog.String("username", bootResult.Username),
+				)
+				if cfg.SSO.DefaultTenantID == "" {
+					cfg.SSO.DefaultTenantID = bootResult.TenantID
+				}
+			} else {
+				log.Info("initial bootstrap skipped",
+					slog.String("component", "app"),
+					slog.String("reason", bootResult.SkippedReason),
+				)
+				if cfg.SSO.DefaultTenantID == "" && bootResult.TenantID != "" {
+					cfg.SSO.DefaultTenantID = bootResult.TenantID
+				}
+			}
+		}
 		remoteClient := weknora.NewHTTPClient(cfg.WeKnora.BaseURL, cfg.WeKnora.APIKey, cfg.WeKnora.Timeout)
 		settingsService = settings.NewService(settings.NewGormStore(db.GORM()), log)
-		if conn, connErr := settingsService.Ensure(context.Background(), cfg.WeKnora.BaseURL, cfg.WeKnora.APIKey); connErr != nil {
+		if conn, connErr := settingsService.Ensure(context.Background(), cfg.WeKnora.BaseURL, cfg.WeKnora.APIKey, cfg.WeKnora.TenantID); connErr != nil {
 			log.Warn("weknora settings unavailable", slog.String("component", "app"), slog.String("error", connErr.Error()))
 		} else {
 			cfg.WeKnora.BaseURL = conn.BaseURL
@@ -109,6 +149,17 @@ func run() int {
 				return info.Version, nil
 			},
 		})
+		var externalIssuer *weknora.ExternalUserTokenIssuer
+		if cfg.WeKnora.ExternalUserHMAC != "" {
+			issuer, issuerErr := weknora.NewExternalUserTokenIssuer(cfg.WeKnora.ExternalUserHMAC, cfg.WeKnora.ExternalUserTokenTTL)
+			if issuerErr != nil {
+				log.Warn("weknora external user token issuer unavailable", slog.String("component", "app"), slog.String("error", issuerErr.Error()))
+			} else {
+				externalIssuer = issuer
+			}
+		}
+		memoryService = weknora.NewMemoryService(remoteClient, settingsService, externalIssuer, cfg.WeKnora.TenantID)
+		chatService = chat.NewService(remoteClient, knowledgeService, memoryService, identityService)
 		dictService = dict.NewService(dict.NewGormStore(db.GORM()))
 		securityService = security.NewService(security.NewGormStore(db.GORM()))
 		ssoVault, vaultErr := sso.NewVault(cfg.SSO.SecretsKey, cfg.Auth.JWTSecret)
@@ -124,6 +175,7 @@ func run() int {
 		ssoService.SetRuntime(sso.RuntimeConfig{
 			FrontendBaseURL: frontendBase,
 			DefaultTenantID: cfg.SSO.DefaultTenantID,
+			AllowedOrigins:  cfg.CORS.AllowedOrigins,
 		})
 		alertStore = monitor.NewGormStore(db.GORM())
 		defer func() {
@@ -161,6 +213,8 @@ func run() int {
 		SSO:       ssoService,
 		Monitor:   monitorService,
 		Tokens:    tokens,
+		Memory:    memoryService,
+		Chat:      chatService,
 	})
 	if err := srv.Run(); err != nil {
 		log.Error("server stopped", slog.String("component", "app"), slog.String("error", err.Error()))

@@ -6,11 +6,13 @@ import (
 	"fmt"
 	"net/url"
 	"strconv"
+	"strings"
 
 	"github.com/golang-migrate/migrate/v4"
 	"github.com/golang-migrate/migrate/v4/database/postgres"
 	"github.com/golang-migrate/migrate/v4/source/iofs"
 	"qingzhi/enterprise-api/internal/config"
+	"qingzhi/enterprise-api/internal/platform/redact"
 	"qingzhi/enterprise-api/migrations"
 )
 
@@ -51,7 +53,7 @@ func Migrate(cfg config.PostgresConfig, command string) (string, error) {
 			return "database schema is already up to date", nil
 		}
 		if err != nil {
-			return "", unavailable("database", err, cfg.Secrets()...)
+			return "", migrateFailure(err, cfg.Secrets()...)
 		}
 		return "database migrations applied", nil
 	case "down":
@@ -60,7 +62,7 @@ func Migrate(cfg config.PostgresConfig, command string) (string, error) {
 			return "no migrations to roll back", nil
 		}
 		if err != nil {
-			return "", unavailable("database", err, cfg.Secrets()...)
+			return "", migrateFailure(err, cfg.Secrets()...)
 		}
 		return "rolled back one migration", nil
 	case "version":
@@ -69,12 +71,50 @@ func Migrate(cfg config.PostgresConfig, command string) (string, error) {
 			return "database schema version: none", nil
 		}
 		if versionErr != nil {
-			return "", unavailable("database", versionErr, cfg.Secrets()...)
+			return "", migrateFailure(versionErr, cfg.Secrets()...)
 		}
 		return fmt.Sprintf("database schema version: %d dirty: %t", version, dirty), nil
 	default:
 		return "", fmt.Errorf("unknown migrate command %q", command)
 	}
+}
+
+// migrateFailure keeps dirty/SQL failures readable; only real driver/connect issues become ConnectionError.
+func migrateFailure(err error, secrets ...string) error {
+	var dirty *migrate.ErrDirty
+	if errors.As(err, &dirty) {
+		return fmt.Errorf(
+			"dirty database schema at version %d (previous migration failed); fix schema then set schema_migrations to version %d dirty=false and re-run up",
+			dirty.Version,
+			dirty.Version-1,
+		)
+	}
+	msg := redact.Apply(err.Error(), secrets...)
+	// Connection/driver style failures stay opaque; migration SQL errors stay explicit.
+	if looksLikeConnectionFailure(msg) {
+		return unavailable("database", err, secrets...)
+	}
+	return fmt.Errorf("%s", msg)
+}
+
+func looksLikeConnectionFailure(msg string) bool {
+	lower := strings.ToLower(msg)
+	for _, needle := range []string{
+		"connection refused",
+		"connect: ",
+		"no such host",
+		"i/o timeout",
+		"timeout expired",
+		"server closed the connection",
+		"driver: bad connection",
+		"pq: sorry, too many clients",
+		"dial tcp",
+	} {
+		if strings.Contains(lower, needle) {
+			return true
+		}
+	}
+	return false
 }
 
 func postgresURL(cfg config.PostgresConfig) string {

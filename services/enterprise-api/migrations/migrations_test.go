@@ -319,6 +319,24 @@ func TestSSOOIDCRPMigration(t *testing.T) {
 	}
 }
 
+func TestSSOClientOnlyMigration(t *testing.T) {
+	content, err := fs.ReadFile(FS, "000025_sso_client_only.up.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	upper := strings.ToUpper(string(content))
+	for _, piece := range []string{
+		"DROP TABLE IF EXISTS SYS_SSO_OAUTH_CLIENTS",
+		"DROP TABLE IF EXISTS SYS_SSO_SAML_SPS",
+		"SP_CERTIFICATE_PEM",
+		"PROTOCOL IN ('OIDC', 'SAML')",
+	} {
+		if !strings.Contains(upper, piece) {
+			t.Fatalf("client-only migration missing %s", piece)
+		}
+	}
+}
+
 func TestSSOFoundationMigration(t *testing.T) {
 	content, err := fs.ReadFile(FS, "000022_sso_foundation.up.sql")
 	if err != nil {

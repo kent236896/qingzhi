@@ -26,6 +26,7 @@
     { "name": "users", "description": "全局账号" },
     { "name": "members", "description": "租户成员与部门任职" },
     { "name": "knowledge", "description": "知识库、文件与 Wiki" },
+    { "name": "chat", "description": "用户工作台 AI 对话（代理 WeKnora Session/SSE，需登录）" },
     { "name": "models", "description": "WeKnora 模型配置与场景默认绑定" },
     { "name": "settings", "description": "系统配置中的 WeKnora 连接" },
     { "name": "sso", "description": "统一身份认证与单点登录管理（配置与审计；协议端点分阶段交付）" }
@@ -82,6 +83,26 @@
     },
     "/api/v1/weknora/ollama/download/progress/{taskId}": {
       "get": { "tags": ["models"], "summary": "本地下载进度", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "进度" } } }
+    },
+    "/api/v1/chat/knowledge-bases": {
+      "get": { "tags": ["chat"], "summary": "对话可用知识库（登录即可，按可见性过滤）", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "本地 id/name/description 列表" } } }
+    },
+    "/api/v1/chat/sessions": {
+      "get": { "tags": ["chat"], "summary": "会话列表", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "分页会话" } } },
+      "post": { "tags": ["chat"], "summary": "创建会话", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "会话" } } }
+    },
+    "/api/v1/chat/sessions/{id}": {
+      "put": { "tags": ["chat"], "summary": "重命名会话", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "会话" } } },
+      "delete": { "tags": ["chat"], "summary": "删除会话", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "已删除" } } }
+    },
+    "/api/v1/chat/sessions/{id}/messages": {
+      "get": { "tags": ["chat"], "summary": "历史消息", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "消息列表" } } }
+    },
+    "/api/v1/chat/sessions/{id}/ask": {
+      "post": { "tags": ["chat"], "summary": "流式知识问答（SSE）", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "text/event-stream" } } }
+    },
+    "/api/v1/chat/sessions/{id}/stop": {
+      "post": { "tags": ["chat"], "summary": "停止生成", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "已停止" } } }
     },
     "/api/v1/knowledge-bases": {
       "get": { "tags": ["knowledge"], "summary": "可见知识库", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "分页列表" } } },

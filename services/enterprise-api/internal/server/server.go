@@ -13,6 +13,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"qingzhi/enterprise-api/internal/auth"
+	"qingzhi/enterprise-api/internal/chat"
 	"qingzhi/enterprise-api/internal/config"
 	"qingzhi/enterprise-api/internal/dict"
 	"qingzhi/enterprise-api/internal/handler"
@@ -25,6 +26,7 @@ import (
 	"qingzhi/enterprise-api/internal/security"
 	"qingzhi/enterprise-api/internal/settings"
 	"qingzhi/enterprise-api/internal/sso"
+	"qingzhi/enterprise-api/internal/weknora"
 )
 
 // Dependencies are the runtime collaborators of the HTTP server.
@@ -42,6 +44,8 @@ type Dependencies struct {
 	SSO       *sso.Service
 	Monitor   *monitor.Service
 	Tokens    *auth.TokenIssuer
+	Memory    *weknora.MemoryService
+	Chat      *chat.Service
 }
 
 // Server is the HTTP API process.
@@ -141,6 +145,14 @@ func New(deps Dependencies) *Server {
 		Logger:  deps.Logger,
 		Service: deps.Settings,
 	}.Register(protected, enforce)
+	handler.WeKnoraMemory{
+		Logger:  deps.Logger,
+		Service: deps.Memory,
+	}.Register(protected, enforce)
+	handler.Chat{
+		Logger:  deps.Logger,
+		Service: deps.Chat,
+	}.Register(protected)
 	ssoHandler.Register(protected, enforce)
 
 	engine.NoRoute(func(c *gin.Context) {

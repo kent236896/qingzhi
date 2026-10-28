@@ -320,6 +320,31 @@ func TestOwnProfileAndPassword(t *testing.T) {
 	if err := svc.ChangeOwnPassword(ctx, user.ID, "Passw0rd!", "Nope1!"); !errors.Is(err, ErrUnauthorized) {
 		t.Fatalf("old password error = %v", err)
 	}
+	if !updated.LocalPasswordEnabled {
+		t.Fatal("local users must have local password enabled")
+	}
+}
+
+func TestFederatedUserCannotUseLocalPassword(t *testing.T) {
+	svc := NewService(newMemoryStore())
+	ctx := context.Background()
+	user, err := svc.CreateFederatedUser(ctx, "fed.user", "联邦用户", "fed@example.com", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	profile, err := svc.GetOwnProfile(ctx, user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if profile.LocalPasswordEnabled {
+		t.Fatal("federated users must not enable local password")
+	}
+	if err := svc.ChangeOwnPassword(ctx, user.ID, "anything", "NewPass1!"); !errors.Is(err, ErrForbidden) {
+		t.Fatalf("change password error = %v", err)
+	}
+	if _, err := svc.Authenticate(ctx, LoginInput{Username: "fed.user", Password: "anything"}); !errors.Is(err, ErrUnauthorized) {
+		t.Fatalf("authenticate error = %v", err)
+	}
 }
 
 func onlyRoot(t *testing.T, svc *Service, tenantID string) (OrganizationNode, error) {

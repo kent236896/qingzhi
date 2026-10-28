@@ -26,22 +26,25 @@ type settingsRow struct {
 	Issuer            string    `gorm:"column:issuer"`
 	DefaultTenantID   string    `gorm:"column:default_tenant_id"`
 	FrontendBaseURL   string    `gorm:"column:frontend_base_url"`
+	SPCertificatePEM  string    `gorm:"column:sp_certificate_pem"`
+	SPKeySecretID     *string   `gorm:"column:sp_key_secret_id;type:uuid"`
 	UpdatedBy         string    `gorm:"column:updated_by"`
 	UpdatedAt         time.Time `gorm:"column:updated_at"`
 }
 
 type authRequestRow struct {
-	ID           string     `gorm:"column:id;type:uuid;primaryKey"`
-	State        string     `gorm:"column:state"`
-	Nonce        string     `gorm:"column:nonce"`
-	CodeVerifier string     `gorm:"column:code_verifier"`
-	ProviderID   string     `gorm:"column:provider_id;type:uuid"`
-	Protocol     string     `gorm:"column:protocol"`
-	RedirectPath string     `gorm:"column:redirect_path"`
-	TenantID     string     `gorm:"column:tenant_id"`
-	ExpiresAt    time.Time  `gorm:"column:expires_at"`
-	ConsumedAt   *time.Time `gorm:"column:consumed_at"`
-	CreatedAt    time.Time  `gorm:"column:created_at"`
+	ID              string     `gorm:"column:id;type:uuid;primaryKey"`
+	State           string     `gorm:"column:state"`
+	Nonce           string     `gorm:"column:nonce"`
+	CodeVerifier    string     `gorm:"column:code_verifier"`
+	ProviderID      string     `gorm:"column:provider_id;type:uuid"`
+	Protocol        string     `gorm:"column:protocol"`
+	RedirectPath    string     `gorm:"column:redirect_path"`
+	TenantID        string     `gorm:"column:tenant_id"`
+	FrontendBaseURL string     `gorm:"column:frontend_base_url"`
+	ExpiresAt       time.Time  `gorm:"column:expires_at"`
+	ConsumedAt      *time.Time `gorm:"column:consumed_at"`
+	CreatedAt       time.Time  `gorm:"column:created_at"`
 }
 
 func (authRequestRow) TableName() string { return "sys_sso_oidc_auth_requests" }
@@ -112,48 +115,7 @@ type providerRow struct {
 
 func (providerRow) TableName() string { return "sys_sso_providers" }
 
-type oauthClientRow struct {
-	ID                 string         `gorm:"column:id;type:uuid;primaryKey"`
-	ClientID           string         `gorm:"column:client_id"`
-	Name               string         `gorm:"column:name"`
-	Description        string         `gorm:"column:description"`
-	ClientType         string         `gorm:"column:client_type"`
-	Status             string         `gorm:"column:status"`
-	RedirectURIs       []string `gorm:"serializer:json;column:redirect_uris"`
-	GrantTypes         []string `gorm:"serializer:json;column:grant_types"`
-	Scopes             []string `gorm:"serializer:json;column:scopes"`
-	PKCEPolicy         string         `gorm:"column:pkce_policy"`
-	AccessTokenTTLSec  int            `gorm:"column:access_token_ttl_sec"`
-	RefreshTokenTTLSec int            `gorm:"column:refresh_token_ttl_sec"`
-	IDTokenTTLSec      int            `gorm:"column:id_token_ttl_sec"`
-	SecretID           *string        `gorm:"column:secret_id;type:uuid"`
-	LastUsedAt         *time.Time     `gorm:"column:last_used_at"`
-	CreatedAt          time.Time      `gorm:"column:created_at"`
-	UpdatedAt          time.Time      `gorm:"column:updated_at"`
-	Deleted            bool           `gorm:"column:deleted"`
-}
 
-func (oauthClientRow) TableName() string { return "sys_sso_oauth_clients" }
-
-type samlSPRow struct {
-	ID                   string         `gorm:"column:id;type:uuid;primaryKey"`
-	Name                 string         `gorm:"column:name"`
-	EntityID             string         `gorm:"column:entity_id"`
-	Status               string         `gorm:"column:status"`
-	ACSURLs              []string       `gorm:"serializer:json;column:acs_urls"`
-	SLOURL               string         `gorm:"column:slo_url"`
-	NameIDFormat         string         `gorm:"column:name_id_format"`
-	AttributeMapping     map[string]any `gorm:"serializer:json;column:attribute_mapping"`
-	AllowIDPInitiated    bool           `gorm:"column:allow_idp_initiated"`
-	CertificatePEM       string         `gorm:"column:certificate_pem"`
-	CertificateNotBefore *time.Time     `gorm:"column:certificate_not_before"`
-	CertificateNotAfter  *time.Time     `gorm:"column:certificate_not_after"`
-	CreatedAt            time.Time      `gorm:"column:created_at"`
-	UpdatedAt            time.Time      `gorm:"column:updated_at"`
-	Deleted              bool           `gorm:"column:deleted"`
-}
-
-func (samlSPRow) TableName() string { return "sys_sso_saml_sps" }
 
 type identityLinkRow struct {
 	ID              string    `gorm:"column:id;type:uuid;primaryKey"`
@@ -193,25 +155,33 @@ func (s *GormStore) Settings(ctx context.Context) (Settings, error) {
 	if err != nil {
 		return Settings{}, err
 	}
-	return Settings{
+	out := Settings{
 		LocalLoginEnabled: row.LocalLoginEnabled,
-		Issuer:            row.Issuer,
 		DefaultTenantID:   row.DefaultTenantID,
 		FrontendBaseURL:   row.FrontendBaseURL,
+		SPCertificatePEM:  row.SPCertificatePEM,
 		Updater:           row.UpdatedBy,
 		UpdatedAt:         row.UpdatedAt,
-	}, nil
+	}
+	if row.SPKeySecretID != nil {
+		out.SPKeySecretID = *row.SPKeySecretID
+	}
+	return out, nil
 }
 
 func (s *GormStore) SaveSettings(ctx context.Context, item Settings) error {
 	row := settingsRow{
 		ID:                1,
 		LocalLoginEnabled: item.LocalLoginEnabled,
-		Issuer:            item.Issuer,
 		DefaultTenantID:   item.DefaultTenantID,
 		FrontendBaseURL:   item.FrontendBaseURL,
+		SPCertificatePEM:  item.SPCertificatePEM,
 		UpdatedBy:         item.Updater,
 		UpdatedAt:         item.UpdatedAt,
+	}
+	if item.SPKeySecretID != "" {
+		id := item.SPKeySecretID
+		row.SPKeySecretID = &id
 	}
 	return s.db.WithContext(ctx).Save(&row).Error
 }
@@ -230,29 +200,7 @@ func (s *GormStore) CountProviders(ctx context.Context, protocol string) (int64,
 	return total, enabled, nil
 }
 
-func (s *GormStore) CountOAuthClients(ctx context.Context) (int64, int64, error) {
-	var total, enabled int64
-	if err := s.db.WithContext(ctx).Model(&oauthClientRow{}).Where("deleted = false").Count(&total).Error; err != nil {
-		return 0, 0, err
-	}
-	if err := s.db.WithContext(ctx).Model(&oauthClientRow{}).
-		Where("deleted = false AND status = ?", StatusEnabled).Count(&enabled).Error; err != nil {
-		return 0, 0, err
-	}
-	return total, enabled, nil
-}
 
-func (s *GormStore) CountSamlSPs(ctx context.Context) (int64, int64, error) {
-	var total, enabled int64
-	if err := s.db.WithContext(ctx).Model(&samlSPRow{}).Where("deleted = false").Count(&total).Error; err != nil {
-		return 0, 0, err
-	}
-	if err := s.db.WithContext(ctx).Model(&samlSPRow{}).
-		Where("deleted = false AND status = ?", StatusEnabled).Count(&enabled).Error; err != nil {
-		return 0, 0, err
-	}
-	return total, enabled, nil
-}
 
 func (s *GormStore) CountIdentityLinks(ctx context.Context) (int64, error) {
 	var total int64
@@ -285,7 +233,7 @@ func (s *GormStore) ListRecentAuthEvents(ctx context.Context, result string, lim
 
 func (s *GormStore) ListCertificateWarnings(ctx context.Context, withinDays int) ([]CertWarning, error) {
 	deadline := time.Now().UTC().AddDate(0, 0, withinDays)
-	var warnings []CertWarning
+	warnings := make([]CertWarning, 0)
 
 	var providers []providerRow
 	if err := s.db.WithContext(ctx).
@@ -297,15 +245,6 @@ func (s *GormStore) ListCertificateWarnings(ctx context.Context, withinDays int)
 		warnings = append(warnings, certWarning("provider", p.ID, p.Name, p.CertificateNotAfter))
 	}
 
-	var sps []samlSPRow
-	if err := s.db.WithContext(ctx).
-		Where("deleted = false AND certificate_not_after IS NOT NULL AND certificate_not_after <= ?", deadline).
-		Find(&sps).Error; err != nil {
-		return nil, err
-	}
-	for _, sp := range sps {
-		warnings = append(warnings, certWarning("saml_sp", sp.ID, sp.Name, sp.CertificateNotAfter))
-	}
 	return warnings, nil
 }
 
@@ -404,164 +343,6 @@ func (s *GormStore) SetProviderStatus(ctx context.Context, id, status string) er
 	}
 	if res.RowsAffected == 0 {
 		return notFound("身份提供方不存在")
-	}
-	return nil
-}
-
-func (s *GormStore) ListOAuthClients(ctx context.Context, query ListQuery) ([]OAuthClient, int64, error) {
-	q := s.db.WithContext(ctx).Model(&oauthClientRow{}).Where("deleted = false")
-	if query.Status != "" {
-		q = q.Where("status = ?", query.Status)
-	}
-	if query.Keyword != "" {
-		like := "%" + query.Keyword + "%"
-		q = q.Where("name ILIKE ? OR client_id ILIKE ?", like, like)
-	}
-	return pageQuery(q, query.Page, query.PageSize, "updated_at DESC", func(rows []oauthClientRow) []OAuthClient {
-		out := make([]OAuthClient, 0, len(rows))
-		for _, row := range rows {
-			out = append(out, s.oauthClientFrom(ctx, row))
-		}
-		return out
-	})
-}
-
-func (s *GormStore) GetOAuthClient(ctx context.Context, id string) (OAuthClient, error) {
-	var row oauthClientRow
-	err := s.db.WithContext(ctx).Where("id = ? AND deleted = false", id).First(&row).Error
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return OAuthClient{}, notFound("OAuth 客户端不存在")
-	}
-	if err != nil {
-		return OAuthClient{}, err
-	}
-	return s.oauthClientFrom(ctx, row), nil
-}
-
-func (s *GormStore) CreateOAuthClient(ctx context.Context, item OAuthClient, secretID *string) (OAuthClient, error) {
-	row := oauthClientToRow(item)
-	row.ID = newID()
-	row.SecretID = secretID
-	now := time.Now().UTC()
-	row.CreatedAt = now
-	row.UpdatedAt = now
-	if err := s.db.WithContext(ctx).Create(&row).Error; err != nil {
-		return OAuthClient{}, err
-	}
-	return s.oauthClientFrom(ctx, row), nil
-}
-
-func (s *GormStore) UpdateOAuthClient(ctx context.Context, item OAuthClient, secretID *string) (OAuthClient, error) {
-	var row oauthClientRow
-	err := s.db.WithContext(ctx).Where("id = ? AND deleted = false", item.ID).First(&row).Error
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return OAuthClient{}, notFound("OAuth 客户端不存在")
-	}
-	if err != nil {
-		return OAuthClient{}, err
-	}
-	updated := oauthClientToRow(item)
-	updated.ID = row.ID
-	updated.ClientID = row.ClientID
-	updated.CreatedAt = row.CreatedAt
-	updated.UpdatedAt = time.Now().UTC()
-	updated.LastUsedAt = row.LastUsedAt
-	updated.Deleted = false
-	if secretID != nil {
-		updated.SecretID = secretID
-	} else {
-		updated.SecretID = row.SecretID
-	}
-	if err := s.db.WithContext(ctx).Save(&updated).Error; err != nil {
-		return OAuthClient{}, err
-	}
-	return s.oauthClientFrom(ctx, updated), nil
-}
-
-func (s *GormStore) SetOAuthClientStatus(ctx context.Context, id, status string) error {
-	res := s.db.WithContext(ctx).Model(&oauthClientRow{}).
-		Where("id = ? AND deleted = false", id).
-		Updates(map[string]any{"status": status, "updated_at": time.Now().UTC()})
-	if res.Error != nil {
-		return res.Error
-	}
-	if res.RowsAffected == 0 {
-		return notFound("OAuth 客户端不存在")
-	}
-	return nil
-}
-
-func (s *GormStore) ListSamlSPs(ctx context.Context, query ListQuery) ([]SamlSP, int64, error) {
-	q := s.db.WithContext(ctx).Model(&samlSPRow{}).Where("deleted = false")
-	if query.Status != "" {
-		q = q.Where("status = ?", query.Status)
-	}
-	if query.Keyword != "" {
-		like := "%" + query.Keyword + "%"
-		q = q.Where("name ILIKE ? OR entity_id ILIKE ?", like, like)
-	}
-	return pageQuery(q, query.Page, query.PageSize, "updated_at DESC", func(rows []samlSPRow) []SamlSP {
-		out := make([]SamlSP, 0, len(rows))
-		for _, row := range rows {
-			out = append(out, samlSPFrom(row))
-		}
-		return out
-	})
-}
-
-func (s *GormStore) GetSamlSP(ctx context.Context, id string) (SamlSP, error) {
-	var row samlSPRow
-	err := s.db.WithContext(ctx).Where("id = ? AND deleted = false", id).First(&row).Error
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return SamlSP{}, notFound("SAML 服务提供方不存在")
-	}
-	if err != nil {
-		return SamlSP{}, err
-	}
-	return samlSPFrom(row), nil
-}
-
-func (s *GormStore) CreateSamlSP(ctx context.Context, item SamlSP) (SamlSP, error) {
-	row := samlSPToRow(item)
-	row.ID = newID()
-	now := time.Now().UTC()
-	row.CreatedAt = now
-	row.UpdatedAt = now
-	if err := s.db.WithContext(ctx).Create(&row).Error; err != nil {
-		return SamlSP{}, err
-	}
-	return samlSPFrom(row), nil
-}
-
-func (s *GormStore) UpdateSamlSP(ctx context.Context, item SamlSP) (SamlSP, error) {
-	var row samlSPRow
-	err := s.db.WithContext(ctx).Where("id = ? AND deleted = false", item.ID).First(&row).Error
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return SamlSP{}, notFound("SAML 服务提供方不存在")
-	}
-	if err != nil {
-		return SamlSP{}, err
-	}
-	updated := samlSPToRow(item)
-	updated.ID = row.ID
-	updated.CreatedAt = row.CreatedAt
-	updated.UpdatedAt = time.Now().UTC()
-	updated.Deleted = false
-	if err := s.db.WithContext(ctx).Save(&updated).Error; err != nil {
-		return SamlSP{}, err
-	}
-	return samlSPFrom(updated), nil
-}
-
-func (s *GormStore) SetSamlSPStatus(ctx context.Context, id, status string) error {
-	res := s.db.WithContext(ctx).Model(&samlSPRow{}).
-		Where("id = ? AND deleted = false", id).
-		Updates(map[string]any{"status": status, "updated_at": time.Now().UTC()})
-	if res.Error != nil {
-		return res.Error
-	}
-	if res.RowsAffected == 0 {
-		return notFound("SAML 服务提供方不存在")
 	}
 	return nil
 }
@@ -719,16 +500,17 @@ func (s *GormStore) MarkProviderAuthResult(ctx context.Context, providerID strin
 
 func (s *GormStore) CreateAuthRequest(ctx context.Context, item AuthRequest) (AuthRequest, error) {
 	row := authRequestRow{
-		ID:           newID(),
-		State:        item.State,
-		Nonce:        item.Nonce,
-		CodeVerifier: item.CodeVerifier,
-		ProviderID:   item.ProviderID,
-		Protocol:     item.Protocol,
-		RedirectPath: item.RedirectPath,
-		TenantID:     item.TenantID,
-		ExpiresAt:    item.ExpiresAt,
-		CreatedAt:    time.Now().UTC(),
+		ID:              newID(),
+		State:           item.State,
+		Nonce:           item.Nonce,
+		CodeVerifier:    item.CodeVerifier,
+		ProviderID:      item.ProviderID,
+		Protocol:        item.Protocol,
+		RedirectPath:    item.RedirectPath,
+		TenantID:        item.TenantID,
+		FrontendBaseURL: item.FrontendBaseURL,
+		ExpiresAt:       item.ExpiresAt,
+		CreatedAt:       time.Now().UTC(),
 	}
 	if err := s.db.WithContext(ctx).Create(&row).Error; err != nil {
 		return AuthRequest{}, err
@@ -764,17 +546,18 @@ func (s *GormStore) ConsumeAuthRequest(ctx context.Context, state string) (AuthR
 		return AuthRequest{}, invalid("登录状态已被使用")
 	}
 	return AuthRequest{
-		ID:           row.ID,
-		State:        row.State,
-		Nonce:        row.Nonce,
-		CodeVerifier: row.CodeVerifier,
-		ProviderID:   row.ProviderID,
-		Protocol:     row.Protocol,
-		RedirectPath: row.RedirectPath,
-		TenantID:     row.TenantID,
-		ExpiresAt:    row.ExpiresAt,
-		ConsumedAt:   &now,
-		CreatedAt:    row.CreatedAt,
+		ID:              row.ID,
+		State:           row.State,
+		Nonce:           row.Nonce,
+		CodeVerifier:    row.CodeVerifier,
+		ProviderID:      row.ProviderID,
+		Protocol:        row.Protocol,
+		RedirectPath:    row.RedirectPath,
+		TenantID:        row.TenantID,
+		FrontendBaseURL: row.FrontendBaseURL,
+		ExpiresAt:       row.ExpiresAt,
+		ConsumedAt:      &now,
+		CreatedAt:       row.CreatedAt,
 	}, nil
 }
 
@@ -925,10 +708,6 @@ func (s *GormStore) providerFrom(ctx context.Context, row providerRow) Provider 
 		AutoLogin:            row.AutoLogin,
 		AutoCreateUser:       row.AutoCreateUser,
 		DiscoveryURL:         row.DiscoveryURL,
-		AuthorizationURL:     row.AuthorizationURL,
-		TokenURL:             row.TokenURL,
-		UserinfoURL:          row.UserinfoURL,
-		JwksURL:              row.JwksURL,
 		ClientID:             row.ClientID,
 		ClientSecretSet:      row.SecretID != nil && *row.SecretID != "",
 		RedirectURI:          row.RedirectURI,
@@ -969,10 +748,6 @@ func providerToRow(item Provider) providerRow {
 		AutoLogin:            item.AutoLogin,
 		AutoCreateUser:       item.AutoCreateUser,
 		DiscoveryURL:         item.DiscoveryURL,
-		AuthorizationURL:     item.AuthorizationURL,
-		TokenURL:             item.TokenURL,
-		UserinfoURL:          item.UserinfoURL,
-		JwksURL:              item.JwksURL,
 		ClientID:             item.ClientID,
 		RedirectURI:          item.RedirectURI,
 		Scopes:               item.Scopes,
@@ -989,89 +764,6 @@ func providerToRow(item Provider) providerRow {
 		NameIDFormat:         item.NameIDFormat,
 		LastSuccessAt:        item.LastSuccessAt,
 		LastError:            item.LastError,
-	}
-}
-
-func (s *GormStore) oauthClientFrom(ctx context.Context, row oauthClientRow) OAuthClient {
-	item := OAuthClient{
-		ID:                 row.ID,
-		ClientID:           row.ClientID,
-		Name:               row.Name,
-		Description:        row.Description,
-		ClientType:         row.ClientType,
-		Status:             row.Status,
-		RedirectURIs:       cloneStrings(row.RedirectURIs),
-		GrantTypes:         cloneStrings(row.GrantTypes),
-		Scopes:             cloneStrings(row.Scopes),
-		PKCEPolicy:         row.PKCEPolicy,
-		AccessTokenTTLSec:  row.AccessTokenTTLSec,
-		RefreshTokenTTLSec: row.RefreshTokenTTLSec,
-		IDTokenTTLSec:      row.IDTokenTTLSec,
-		ClientSecretSet:    row.SecretID != nil && *row.SecretID != "",
-		LastUsedAt:         row.LastUsedAt,
-		CreatedAt:          row.CreatedAt,
-		UpdatedAt:          row.UpdatedAt,
-	}
-	if row.SecretID != nil && *row.SecretID != "" {
-		if hint, err := s.GetSecretHint(ctx, *row.SecretID); err == nil {
-			item.ClientSecretHint = hint
-		}
-	}
-	return item
-}
-
-func oauthClientToRow(item OAuthClient) oauthClientRow {
-	return oauthClientRow{
-		ID:                 item.ID,
-		ClientID:           item.ClientID,
-		Name:               item.Name,
-		Description:        item.Description,
-		ClientType:         item.ClientType,
-		Status:             item.Status,
-		RedirectURIs:       cloneStrings(item.RedirectURIs),
-		GrantTypes:         cloneStrings(item.GrantTypes),
-		Scopes:             cloneStrings(item.Scopes),
-		PKCEPolicy:         item.PKCEPolicy,
-		AccessTokenTTLSec:  item.AccessTokenTTLSec,
-		RefreshTokenTTLSec: item.RefreshTokenTTLSec,
-		IDTokenTTLSec:      item.IDTokenTTLSec,
-		LastUsedAt:         item.LastUsedAt,
-	}
-}
-
-func samlSPFrom(row samlSPRow) SamlSP {
-	return SamlSP{
-		ID:                   row.ID,
-		Name:                 row.Name,
-		EntityID:             row.EntityID,
-		Status:               row.Status,
-		ACSURLs:              cloneStrings(row.ACSURLs),
-		SLOURL:               row.SLOURL,
-		NameIDFormat:         row.NameIDFormat,
-		AttributeMapping:     cloneMap(row.AttributeMapping),
-		AllowIDPInitiated:    row.AllowIDPInitiated,
-		CertificatePEM:       row.CertificatePEM,
-		CertificateNotBefore: row.CertificateNotBefore,
-		CertificateNotAfter:  row.CertificateNotAfter,
-		CreatedAt:            row.CreatedAt,
-		UpdatedAt:            row.UpdatedAt,
-	}
-}
-
-func samlSPToRow(item SamlSP) samlSPRow {
-	return samlSPRow{
-		ID:                   item.ID,
-		Name:                 item.Name,
-		EntityID:             item.EntityID,
-		Status:               item.Status,
-		ACSURLs:              cloneStrings(item.ACSURLs),
-		SLOURL:               item.SLOURL,
-		NameIDFormat:         item.NameIDFormat,
-		AttributeMapping:     cloneMap(item.AttributeMapping),
-		AllowIDPInitiated:    item.AllowIDPInitiated,
-		CertificatePEM:       item.CertificatePEM,
-		CertificateNotBefore: item.CertificateNotBefore,
-		CertificateNotAfter:  item.CertificateNotAfter,
 	}
 }
 

@@ -39,9 +39,24 @@
 
 校验失败时 `data.fields` 给出字段和可展示的说明，例如 `name为必填项`。响应不包含堆栈、SQL 或配置。
 
-模型配置接口在 `/api/v1/weknora/models`。管理后台在「系统配置」的默认模型下拉框里完成模型增删改查，测试和调试仍在编辑抽屉中。未填写 WeKnora 地址和 API Key 时，页面会先引导填写这两项，相关接口也会返回同样的提示。查看需要 `model:query`，增删改、复制、密钥、测试和调试需要 `model:manage`。这两项只授予超级管理员。模型本体和密钥只存在于 WeKnora，本系统只保存场景默认绑定 `sys_weknora_model_bindings`。角色为 `embedding`、`summary`、`wiki_synthesis`、`vlm`、`asr`、`rerank`。默认模型只保存在 `sys_weknora_model_bindings`，在「系统配置」里维护，不从环境变量读取。WeKnora 地址和 API Key 也保存在 `sys_weknora_settings`，由「系统配置」填写；环境变量只在这张表还是空的时候写入一次。接口不返回 API Key 明文。更换向量默认模型只影响之后新建的知识库。WeKnora 的 API Key 需要 `manage_models` 或 full-access。内网模型地址要在 WeKnora 配置 `SSRF_WHITELIST_EXTRA`。`WEKNORA_OLLAMA_ENABLED` 默认关闭，关闭时本地模型接口返回 404。测试和调试按用户每分钟 5 次。
+WeKnora 空间级长期记忆配置在 `GET/PUT /api/v1/weknora/memory-config`（代理 WeKnora `tenants/kv/memory-config`），需 `model:query` / `model:manage`。个人记忆接口在隔离验证前不开放，见 [weknora-memory.md](weknora-memory.md)。模型配置接口在 `/api/v1/weknora/models`。管理后台在「系统配置」的默认模型下拉框里完成模型增删改查，测试和调试仍在编辑抽屉中。未填写 WeKnora 地址和 API Key 时，页面会先引导填写这两项，相关接口也会返回同样的提示。查看需要 `model:query`，增删改、复制、密钥、测试和调试需要 `model:manage`。这两项只授予超级管理员。模型本体和密钥只存在于 WeKnora，本系统只保存场景默认绑定 `sys_weknora_model_bindings`。角色为 `embedding`、`summary`、`wiki_synthesis`、`vlm`、`asr`、`rerank`。默认模型只保存在 `sys_weknora_model_bindings`，在「系统配置」里维护，不从环境变量读取。WeKnora 地址和 API Key 也保存在 `sys_weknora_settings`，由「系统配置」填写；环境变量只在这张表还是空的时候写入一次。接口不返回 API Key 明文。更换向量默认模型只影响之后新建的知识库。WeKnora 的 API Key 需要 `manage_models` 或 full-access。内网模型地址要在 WeKnora 配置 `SSRF_WHITELIST_EXTRA`。`WEKNORA_OLLAMA_ENABLED` 默认关闭，关闭时本地模型接口返回 404。测试和调试按用户每分钟 5 次。
 
-知识库接口在 `/api/v1/knowledge-bases`。进入页面需要 `knowledge:query`。个人知识库可由本人创建并分享给用户；组织与角色知识库可由具备 `knowledge:manage` 的管理员分享给其他组织或角色（`PUT /api/v1/knowledge-bases/:id/shares`）。岗位知识库暂不支持分享。组织、岗位、角色知识库的创建、删除、改租户需要 `knowledge:manage`。上传大小读取 `GET /api/v1/knowledge-bases/limits`。Wiki 状态为 `disabled`、`empty`、`generating`、`ready`、`timeout`：文档都结束后页面数仍为 0，并且等待达到 `KB_WIKI_STATUS_TIMEOUT_MIN`，记为超时，不把文档标成失败。Wiki / 图谱读代理、链接语法与标签结构见 `docs/wiki.md`。
+知识库接口在 `/api/v1/knowledge-bases`。进入页面需要 `knowledge:query`。个人知识库可由本人创建并分享给用户；组织与角色知识库可由具备 `knowledge:manage` 的管理员分享给其他组织或角色（`PUT /api/v1/knowledge-bases/:id/shares`）。岗位知识库暂不支持分享。组织、岗位、角色知识库的创建、删除、改租户需要 `knowledge:manage`。组织归属（或分享到某组织）时：任职落在该组织**本级、上级或下级**链上的成员可见，**平行组织不可见**（例如归属财务部时，财务部上下级可见，研发部不可见）。上传大小读取 `GET /api/v1/knowledge-bases/limits`。Wiki 状态为 `disabled`、`empty`、`generating`、`ready`、`timeout`：文档都结束后页面数仍为 0，并且等待达到 `KB_WIKI_STATUS_TIMEOUT_MIN`，记为超时，不把文档标成失败。Wiki / 图谱读代理、链接语法与标签结构见 `docs/wiki.md`。
+
+用户工作台 AI 对话接口在 `/api/v1/chat`（需登录 Bearer JWT，**不**要求 `knowledge:query` 菜单权限；知识库可见性仍按与知识库列表相同的组织/分享规则校验）。服务端为每次上游请求签发短时 `X-External-User-Token`（缺 `WEKNORA_EXTERNAL_USER_HMAC` 时返回 503，不降级为超管身份），并携带系统设置中的 WeKnora API Key；浏览器不得持有 Key/HMAC。远程 `weknora_kb_id` 不下发给前端。
+
+- `GET /api/v1/chat/knowledge-bases`：当前用户可见知识库（本地 id / name / description / scope_type）。
+- `GET /api/v1/chat/sessions`：分页会话列表（代理 WeKnora）；关键词搜索由前端本地过滤。
+- `POST /api/v1/chat/sessions`：创建会话，body 可选 `title`。
+- `PUT /api/v1/chat/sessions/{id}`：重命名，body `title`。
+- `DELETE /api/v1/chat/sessions/{id}`：删除会话。
+- `GET /api/v1/chat/sessions/{id}/messages`：历史消息，查询参数 `limit`、可选 `before_time`（RFC3339）。
+- `POST /api/v1/chat/sessions/{id}/ask`：流式知识问答（`Content-Type: text/event-stream`，不使用统一信封）。body：`query` + 平台 `knowledge_base_ids`；任一条不可见或未绑定远程 ID → 403；本阶段 `agent_enabled=false`。
+- `POST /api/v1/chat/sessions/{id}/stop`：停止生成，body `message_id` 必须来自流事件。
+
+会话跨用户隔离依赖 WeKnora `signed_token` Principal；实机 A/B 验证见 [api-reuse-analysis.md](api-reuse-analysis.md) PENDING。个人记忆接口仍不开放，见 [weknora-memory.md](weknora-memory.md)。
+
+用户工作台对话代理在 `/api/v1/chat`（需登录，**不**要求 `knowledge:query` 菜单权限；知识库授权仍走可见性规则）。服务端为每次 WeKnora 调用签发短时 `X-External-User-Token`（`sub`=平台用户 ID，`tenant_id`=配置的 WeKnora 空间），并与系统设置中的 API Key 一并注入；浏览器不持有 WeKnora Key/HMAC。缺 HMAC 或未配置 WeKnora 时返回 HTTP 503。`GET /api/v1/chat/knowledge-bases` 只返回本地 id/name/description/scope_type，不暴露 `weknora_kb_id`。会话 CRUD 与消息加载代理上游 Session/Message；`POST /api/v1/chat/sessions/:id/ask` 为 SSE（`text/event-stream`，非统一信封），body 使用平台知识库 id 列表；`POST .../stop` 的 `message_id` 必须来自流事件。会话关键词搜索由前端本地过滤（上游无 keyword）。引用来源展示检索片段与元数据；安全原文代理未确认前不提供永久公开链接。跨用户 Session 隔离依赖 WeKnora `signed_token` Principal，实机验证见 [api-reuse-analysis.md](api-reuse-analysis.md) PENDING。
 
 ## Request ID
 
@@ -62,8 +77,10 @@
 账号、租户和部门管理接口同样走 `/api/v1`。除健康检查、OpenAPI 与登录外，管理接口需要 `Authorization: Bearer <token>`，并校验角色菜单权限；租户路径参数必须与令牌中的租户一致。认证失败返回 HTTP 401、业务码 `40100`；无权限返回 HTTP 403、业务码 `40300`。数据库未就绪时返回 HTTP 503、业务码 `50301`。
 
 - `POST /api/v1/auth/login`：用户名、密码、可选 `tenant_id`。成功返回 access token、当前用户、权限列表与数据范围。
-- `GET /api/v1/auth/me`、`GET /api/v1/auth/menus`：当前会话与按角色过滤的菜单树。`me` 同时返回系统版本。侧边栏应使用菜单接口，而不是完整菜单管理接口。
-- `GET/PATCH /api/v1/auth/profile` 读取或修改当前用户的昵称、备注、邮箱、手机、性别和头像。`PUT /api/v1/auth/password` 用当前密码修改登录密码。这两项只作用于登录者本人。
+- `GET /api/v1/auth/me`、`GET /api/v1/auth/menus`：当前会话与按角色过滤的菜单树。`me` 同时返回系统版本、当前 `auth_method`（`local` / `sso`）、`local_password_enabled`、`username_editable`（当前恒为 `false`）和 `account_console_url`（未配置时为空）。侧边栏应使用菜单接口，而不是完整菜单管理接口。
+- `GET/PATCH /api/v1/auth/profile` 读取或修改当前用户的昵称、备注、邮箱、手机、性别和头像；响应同样附带 `auth_method` / `local_password_enabled` 等账号认证元数据。用户名不可通过此接口修改，也不会同步到 Keycloak。
+- `PUT /api/v1/auth/password` 仅修改本平台 `sys_users` 本地密码哈希，不调用 Keycloak Admin API。仅当 `local_password_enabled=true` 时可改；联邦开户账号该标志为 `false`。成功后不强制吊销当前 JWT。
+- `GET /api/v1/auth/password-policy`：返回当前安全策略中的密码规则（长度与字符类别），供已登录用户在改密表单做前端提示；最终仍以服务端校验为准。
 - `GET/POST /api/v1/tenants`，`GET/PATCH /api/v1/tenants/{tenantId}`
 - `GET/POST /api/v1/tenants/{tenantId}/organizations`，`PATCH/DELETE /api/v1/tenants/{tenantId}/organizations/{organizationId}`。每个租户只有一个主体组织。集团和子公司的主体可以同级，也可以把子公司主体挂到集团主体下面；部门必须留在本公司租户内。不能删除主体组织。`GET` 按数据范围过滤。令牌租户可以直接访问；维护其他租户的组织还需要 `system:tenant:query`。
 - `GET/POST /api/v1/tenants/{tenantId}/posts`，`GET/PATCH/DELETE /api/v1/tenants/{tenantId}/posts/{postId}`。岗位按租户隔离，同一租户内编码唯一。

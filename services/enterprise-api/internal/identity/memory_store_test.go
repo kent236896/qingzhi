@@ -111,6 +111,19 @@ func (s *memoryStore) FindUserByUsername(_ context.Context, username string) (Us
 	return User{}, ErrNotFound
 }
 
+func (s *memoryStore) FindUserByEmail(_ context.Context, email string) (User, error) {
+	email = strings.TrimSpace(email)
+	if email == "" {
+		return User{}, ErrNotFound
+	}
+	for _, user := range s.users {
+		if !user.Deleted && user.Email != "" && strings.EqualFold(user.Email, email) {
+			return user, nil
+		}
+	}
+	return User{}, ErrNotFound
+}
+
 func (s *memoryStore) UpdateUserPassword(_ context.Context, userID, passwordHash string) error {
 	user, ok := s.users[userID]
 	if !ok || user.Deleted {

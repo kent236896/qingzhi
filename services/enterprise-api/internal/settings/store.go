@@ -10,10 +10,11 @@ import (
 
 // Record is the stored WeKnora connection. APIKey never leaves the server.
 type Record struct {
-	BaseURL   string
-	APIKey    string
-	UpdatedBy string
-	UpdatedAt time.Time
+	BaseURL         string
+	APIKey          string
+	WeKnoraTenantID string
+	UpdatedBy       string
+	UpdatedAt       time.Time
 }
 
 // Store persists the singleton connection settings.
@@ -23,11 +24,12 @@ type Store interface {
 }
 
 type settingsRow struct {
-	ID        int       `gorm:"column:id;primaryKey"`
-	BaseURL   string    `gorm:"column:base_url"`
-	APIKey    string    `gorm:"column:api_key"`
-	UpdatedBy string    `gorm:"column:updated_by"`
-	UpdatedAt time.Time `gorm:"column:updated_at"`
+	ID              int       `gorm:"column:id;primaryKey"`
+	BaseURL         string    `gorm:"column:base_url"`
+	APIKey          string    `gorm:"column:api_key"`
+	WeKnoraTenantID string    `gorm:"column:weknora_tenant_id"`
+	UpdatedBy       string    `gorm:"column:updated_by"`
+	UpdatedAt       time.Time `gorm:"column:updated_at"`
 }
 
 func (settingsRow) TableName() string { return "sys_weknora_settings" }
@@ -46,10 +48,16 @@ func (s *GormStore) Get(ctx context.Context) (Record, error) {
 	if err != nil {
 		return Record{}, err
 	}
-	return Record{BaseURL: row.BaseURL, APIKey: row.APIKey, UpdatedBy: row.UpdatedBy, UpdatedAt: row.UpdatedAt}, nil
+	return Record{
+		BaseURL: row.BaseURL, APIKey: row.APIKey, WeKnoraTenantID: row.WeKnoraTenantID,
+		UpdatedBy: row.UpdatedBy, UpdatedAt: row.UpdatedAt,
+	}, nil
 }
 
 func (s *GormStore) Save(ctx context.Context, item Record) error {
-	row := settingsRow{ID: 1, BaseURL: item.BaseURL, APIKey: item.APIKey, UpdatedBy: item.UpdatedBy, UpdatedAt: item.UpdatedAt}
+	row := settingsRow{
+		ID: 1, BaseURL: item.BaseURL, APIKey: item.APIKey, WeKnoraTenantID: item.WeKnoraTenantID,
+		UpdatedBy: item.UpdatedBy, UpdatedAt: item.UpdatedAt,
+	}
 	return s.db.WithContext(ctx).Save(&row).Error
 }

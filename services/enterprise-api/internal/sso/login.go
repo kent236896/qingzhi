@@ -5,10 +5,8 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -23,13 +21,16 @@ import (
 // IdentityBridge is the minimal identity surface used by federation login.
 type IdentityBridge interface {
 	LoginFederated(ctx context.Context, userID, tenantID, loginIP string) (identity.LoginResult, error)
+	FindUserForFederation(ctx context.Context, email, username string) (identity.User, error)
 	CreateFederatedUser(ctx context.Context, username, nickname, email, tenantID string) (identity.User, error)
+	FirstActiveTenantID(ctx context.Context) (string, error)
 }
 
 // RuntimeConfig holds process-level SSO login settings.
 type RuntimeConfig struct {
 	FrontendBaseURL string
 	DefaultTenantID string
+	AllowedOrigins  []string
 	HTTPClient      *http.Client
 }
 
@@ -64,7 +65,8 @@ func (s *Service) LoginOptions(ctx context.Context) ([]LoginOption, Settings, er
 }
 
 // StartExternalLogin begins an OIDC or OAuth2 authorization-code flow with PKCE.
-func (s *Service) StartExternalLogin(ctx context.Context, providerID, redirectPath, tenantID string) (authURL string, err error) {
+// frontendBase is typically window.location.origin from the login page; empty falls back to saved settings.
+func (s *Service) StartExternalLogin(ctx context.Context, providerID, redirectPath, tenantID, frontendBase string) (authURL string, err error) {
 	provider, err := s.store.GetProvider(ctx, providerID)
 	if err != nil {
 		return "", err
@@ -72,11 +74,15 @@ func (s *Service) StartExternalLogin(ctx context.Context, providerID, redirectPa
 	if provider.Status != StatusEnabled {
 		return "", invalid("身份提供方未启用")
 	}
-	if provider.Protocol != ProtocolOIDC && provider.Protocol != ProtocolOAuth2 {
-		return "", invalid("该提供方不支持此登录方式")
+	if provider.Protocol != ProtocolOIDC {
+		return "", invalid("该提供方不支持 OIDC 登录")
 	}
 	redirectPath = sanitizeRedirectPath(redirectPath)
 	tenantID = strings.TrimSpace(tenantID)
+	frontendBase, err = s.normalizeFrontendBase(ctx, frontendBase)
+	if err != nil {
+		return "", err
+	}
 
 	state, err := randomURLString(32)
 	if err != nil {
@@ -92,14 +98,15 @@ func (s *Service) StartExternalLogin(ctx context.Context, providerID, redirectPa
 	}
 
 	req := AuthRequest{
-		State:        state,
-		Nonce:        nonce,
-		CodeVerifier: verifier,
-		ProviderID:   provider.ID,
-		Protocol:     provider.Protocol,
-		RedirectPath: redirectPath,
-		TenantID:     tenantID,
-		ExpiresAt:    s.now().UTC().Add(10 * time.Minute),
+		State:           state,
+		Nonce:           nonce,
+		CodeVerifier:    verifier,
+		ProviderID:      provider.ID,
+		Protocol:        provider.Protocol,
+		RedirectPath:    redirectPath,
+		TenantID:        tenantID,
+		FrontendBaseURL: frontendBase,
+		ExpiresAt:       s.now().UTC().Add(10 * time.Minute),
 	}
 	if _, err := s.store.CreateAuthRequest(ctx, req); err != nil {
 		return "", err
@@ -120,32 +127,27 @@ func (s *Service) StartExternalLogin(ctx context.Context, providerID, redirectPa
 }
 
 // CompleteExternalLogin finishes the IdP callback, maps identity, and returns a one-time ticket.
-func (s *Service) CompleteExternalLogin(ctx context.Context, code, state, loginIP string) (ticket string, redirectPath string, err error) {
+func (s *Service) CompleteExternalLogin(ctx context.Context, code, state, loginIP string) (ticket, redirectPath, frontendBase string, err error) {
 	if strings.TrimSpace(code) == "" || strings.TrimSpace(state) == "" {
-		return "", "/", invalid("回调参数不完整")
+		return "", "/", "", invalid("回调参数不完整")
 	}
 	authReq, err := s.store.ConsumeAuthRequest(ctx, state)
 	if err != nil {
-		return "", "/", err
+		return "", "/", "", err
 	}
+	frontendBase = strings.TrimSpace(authReq.FrontendBaseURL)
 	provider, err := s.store.GetProvider(ctx, authReq.ProviderID)
 	if err != nil {
-		return "", authReq.RedirectPath, err
+		return "", authReq.RedirectPath, frontendBase, err
 	}
 	if provider.Status != StatusEnabled {
-		return "", authReq.RedirectPath, invalid("身份提供方未启用")
+		return "", authReq.RedirectPath, frontendBase, invalid("身份提供方未启用")
 	}
 
-	var subject string
-	var email, name string
-	switch provider.Protocol {
-	case ProtocolOIDC:
-		subject, email, name, err = s.completeOIDC(ctx, provider, authReq, code)
-	case ProtocolOAuth2:
-		subject, email, name, err = s.completeOAuth2(ctx, provider, authReq, code)
-	default:
-		err = invalid("不支持的协议")
+	if provider.Protocol != ProtocolOIDC {
+		return "", authReq.RedirectPath, frontendBase, invalid("不支持的协议")
 	}
+	subject, email, username, name, err := s.completeOIDC(ctx, provider, authReq, code)
 	if err != nil {
 		_ = s.store.MarkProviderAuthResult(ctx, provider.ID, false, safeErr(err))
 		_ = s.RecordEvent(ctx, AuthEvent{
@@ -156,10 +158,10 @@ func (s *Service) CompleteExternalLogin(ctx context.Context, code, state, loginI
 			Message:    safeErr(err),
 			IP:         loginIP,
 		})
-		return "", authReq.RedirectPath, err
+		return "", authReq.RedirectPath, frontendBase, err
 	}
 
-	userID, err := s.resolveMappedUser(ctx, provider, subject, email, name, authReq.TenantID)
+	userID, err := s.resolveMappedUser(ctx, provider, subject, email, username, name, authReq.TenantID)
 	if err != nil {
 		_ = s.store.MarkProviderAuthResult(ctx, provider.ID, false, safeErr(err))
 		_ = s.RecordEvent(ctx, AuthEvent{
@@ -170,11 +172,11 @@ func (s *Service) CompleteExternalLogin(ctx context.Context, code, state, loginI
 			Message:    safeErr(err),
 			IP:         loginIP,
 		})
-		return "", authReq.RedirectPath, err
+		return "", authReq.RedirectPath, frontendBase, err
 	}
 
 	if s.identity == nil {
-		return "", authReq.RedirectPath, notReady("身份服务未就绪")
+		return "", authReq.RedirectPath, frontendBase, notReady("身份服务未就绪")
 	}
 	tenantID := authReq.TenantID
 	if tenantID == "" {
@@ -192,12 +194,12 @@ func (s *Service) CompleteExternalLogin(ctx context.Context, code, state, loginI
 			Message:    "本地会话建立失败",
 			IP:         loginIP,
 		})
-		return "", authReq.RedirectPath, mapIdentityErr(err)
+		return "", authReq.RedirectPath, frontendBase, mapIdentityErr(err)
 	}
 
 	ticketValue, err := randomURLString(32)
 	if err != nil {
-		return "", authReq.RedirectPath, err
+		return "", authReq.RedirectPath, frontendBase, err
 	}
 	_, err = s.store.CreateLoginTicket(ctx, LoginTicket{
 		Ticket:     ticketValue,
@@ -207,7 +209,7 @@ func (s *Service) CompleteExternalLogin(ctx context.Context, code, state, loginI
 		ExpiresAt:  s.now().UTC().Add(60 * time.Second),
 	})
 	if err != nil {
-		return "", authReq.RedirectPath, err
+		return "", authReq.RedirectPath, frontendBase, err
 	}
 
 	_ = s.store.MarkProviderAuthResult(ctx, provider.ID, true, "")
@@ -221,7 +223,7 @@ func (s *Service) CompleteExternalLogin(ctx context.Context, code, state, loginI
 		Message:    "外部身份登录成功",
 		IP:         loginIP,
 	})
-	return ticketValue, authReq.RedirectPath, nil
+	return ticketValue, authReq.RedirectPath, frontendBase, nil
 }
 
 // ExchangeLoginTicket consumes a one-time ticket and returns the mapped local login.
@@ -250,21 +252,11 @@ func (s *Service) ExchangeLoginTicket(ctx context.Context, ticket, loginIP strin
 }
 
 // FrontendRedirectURL builds a safe browser redirect after IdP callback.
-func (s *Service) FrontendRedirectURL(ctx context.Context, path, ticket, errMsg string) (string, error) {
-	settings, err := s.store.Settings(ctx)
+// frontendBaseHint comes from the auth request (browser origin at login start).
+func (s *Service) FrontendRedirectURL(ctx context.Context, path, ticket, errMsg, frontendBaseHint string) (string, error) {
+	base, err := s.resolveFrontendBase(ctx, frontendBaseHint)
 	if err != nil {
 		return "", err
-	}
-	base := strings.TrimSpace(settings.FrontendBaseURL)
-	if base == "" {
-		base = strings.TrimSpace(s.runtime.FrontendBaseURL)
-	}
-	if base == "" {
-		return "", notReady("未配置前端回调地址 SSO frontend_base_url")
-	}
-	parsed, err := url.Parse(base)
-	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
-		return "", invalid("前端回调地址不合法")
 	}
 	path = sanitizeRedirectPath(path)
 	target := strings.TrimRight(base, "/") + "/login/sso/callback"
@@ -281,88 +273,155 @@ func (s *Service) FrontendRedirectURL(ctx context.Context, path, ticket, errMsg 
 	return u.String(), nil
 }
 
-func (s *Service) completeOIDC(ctx context.Context, provider Provider, authReq AuthRequest, code string) (subject, email, name string, err error) {
+// normalizeFrontendBase validates and canonicalizes an origin used for post-login redirect.
+// Empty input is allowed (resolved later from settings / CORS).
+func (s *Service) normalizeFrontendBase(ctx context.Context, raw string) (string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", nil
+	}
+	base, err := canonicalizeFrontendBase(raw)
+	if err != nil {
+		return "", err
+	}
+	if !s.isTrustedFrontendBase(ctx, base) {
+		return "", invalid("前端基址不在 CORS 白名单中，请在「身份认证与单点登录」中配置或加入 CORS_ALLOWED_ORIGINS")
+	}
+	return base, nil
+}
+
+func (s *Service) resolveFrontendBase(ctx context.Context, hint string) (string, error) {
+	settings, err := s.store.Settings(ctx)
+	if err != nil {
+		return "", err
+	}
+	candidates := []string{
+		strings.TrimSpace(hint),
+		strings.TrimSpace(settings.FrontendBaseURL),
+		strings.TrimSpace(s.runtime.FrontendBaseURL),
+	}
+	for _, origin := range s.runtime.AllowedOrigins {
+		origin = strings.TrimSpace(origin)
+		if origin != "" && origin != "*" {
+			candidates = append(candidates, origin)
+		}
+	}
+	for _, candidate := range candidates {
+		if candidate == "" {
+			continue
+		}
+		base, err := canonicalizeFrontendBase(candidate)
+		if err != nil {
+			continue
+		}
+		if s.isTrustedFrontendBase(ctx, base) {
+			return base, nil
+		}
+	}
+	return "", notReady("未配置前端回调地址：请在「身份认证与单点登录」保存前端基址，或确保 CORS_ALLOWED_ORIGINS 包含管理端地址")
+}
+
+func (s *Service) isTrustedFrontendBase(ctx context.Context, base string) bool {
+	base = strings.TrimRight(strings.TrimSpace(base), "/")
+	if base == "" {
+		return false
+	}
+	settings, err := s.store.Settings(ctx)
+	if err == nil {
+		if saved, err := canonicalizeFrontendBase(settings.FrontendBaseURL); err == nil && saved == base {
+			return true
+		}
+	}
+	if runtimeBase, err := canonicalizeFrontendBase(s.runtime.FrontendBaseURL); err == nil && runtimeBase == base {
+		return true
+	}
+	wildcard := false
+	matched := false
+	for _, origin := range s.runtime.AllowedOrigins {
+		origin = strings.TrimSpace(origin)
+		if origin == "*" {
+			wildcard = true
+			continue
+		}
+		allowed, err := canonicalizeFrontendBase(origin)
+		if err != nil {
+			continue
+		}
+		if allowed == base {
+			matched = true
+			break
+		}
+	}
+	if matched {
+		return true
+	}
+	// Wildcard CORS alone is not enough to trust an arbitrary redirect target.
+	_ = wildcard
+	return false
+}
+
+func canonicalizeFrontendBase(raw string) (string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", invalid("前端基址不能为空")
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" || parsed.User != nil {
+		return "", invalid("前端基址不合法")
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return "", invalid("前端基址须为 http(s) 地址")
+	}
+	if parsed.Path != "" && parsed.Path != "/" {
+		return "", invalid("前端基址只能是站点根地址（不含路径）")
+	}
+	if parsed.RawQuery != "" || parsed.Fragment != "" {
+		return "", invalid("前端基址不能包含查询参数")
+	}
+	return strings.ToLower(parsed.Scheme) + "://" + strings.ToLower(parsed.Host), nil
+}
+
+func (s *Service) completeOIDC(ctx context.Context, provider Provider, authReq AuthRequest, code string) (subject, email, username, name string, err error) {
 	oauthCfg, err := s.oauthConfig(ctx, provider)
 	if err != nil {
-		return "", "", "", err
+		return "", "", "", "", err
 	}
 	ctx = oidc.ClientContext(ctx, s.client())
 	providerOIDC, err := oidc.NewProvider(ctx, provider.Issuer)
 	if err != nil {
-		return "", "", "", invalid("无法加载 OIDC Discovery")
+		return "", "", "", "", invalid(fmt.Sprintf("无法加载 OIDC Discovery（请确认 Issuer 可被 API 访问）: %s", provider.Issuer))
 	}
 	verifier := providerOIDC.Verifier(&oidc.Config{ClientID: provider.ClientID})
 	token, err := oauthCfg.Exchange(ctx, code, oauth2.SetAuthURLParam("code_verifier", authReq.CodeVerifier))
 	if err != nil {
-		return "", "", "", invalid("授权码交换失败")
+		return "", "", "", "", invalid("授权码交换失败")
 	}
 	rawIDToken, ok := token.Extra("id_token").(string)
 	if !ok || rawIDToken == "" {
-		return "", "", "", invalid("响应缺少 ID Token")
+		return "", "", "", "", invalid("响应缺少 ID Token")
 	}
 	idToken, err := verifier.Verify(ctx, rawIDToken)
 	if err != nil {
-		return "", "", "", invalid("ID Token 校验失败")
+		return "", "", "", "", invalid("ID Token 校验失败")
 	}
 	if idToken.Nonce != authReq.Nonce {
-		return "", "", "", invalid("nonce 校验失败")
+		return "", "", "", "", invalid("nonce 校验失败")
 	}
 	var claims map[string]any
 	if err := idToken.Claims(&claims); err != nil {
-		return "", "", "", invalid("无法解析 ID Token Claims")
+		return "", "", "", "", invalid("无法解析 ID Token Claims")
 	}
 	subject = claimString(claims, "sub")
 	if subject == "" {
-		return "", "", "", invalid("ID Token 缺少 sub")
+		return "", "", "", "", invalid("ID Token 缺少 sub")
 	}
 	email = mappedClaim(claims, provider.ClaimMapping, "email", "email")
+	username = mappedClaim(claims, provider.ClaimMapping, "username", "preferred_username", "username")
 	name = mappedClaim(claims, provider.ClaimMapping, "name", "name", "preferred_username")
-	return subject, email, name, nil
+	return subject, email, username, name, nil
 }
 
-func (s *Service) completeOAuth2(ctx context.Context, provider Provider, authReq AuthRequest, code string) (subject, email, name string, err error) {
-	if strings.TrimSpace(provider.UserinfoURL) == "" {
-		return "", "", "", invalid("通用 OAuth2 必须配置可信用户信息端点")
-	}
-	oauthCfg, err := s.oauthConfig(ctx, provider)
-	if err != nil {
-		return "", "", "", err
-	}
-	token, err := oauthCfg.Exchange(ctx, code, oauth2.SetAuthURLParam("code_verifier", authReq.CodeVerifier))
-	if err != nil {
-		return "", "", "", invalid("授权码交换失败")
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, provider.UserinfoURL, nil)
-	if err != nil {
-		return "", "", "", err
-	}
-	req.Header.Set("Authorization", "Bearer "+token.AccessToken)
-	resp, err := s.client().Do(req)
-	if err != nil {
-		return "", "", "", invalid("用户信息端点请求失败")
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return "", "", "", invalid("用户信息端点返回异常")
-	}
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if err != nil {
-		return "", "", "", err
-	}
-	var claims map[string]any
-	if err := json.Unmarshal(body, &claims); err != nil {
-		return "", "", "", invalid("用户信息响应不是合法 JSON")
-	}
-	subject = mappedClaim(claims, provider.ClaimMapping, "sub", "sub", "id", "user_id")
-	if subject == "" {
-		return "", "", "", invalid("用户信息缺少稳定 Subject")
-	}
-	email = mappedClaim(claims, provider.ClaimMapping, "email", "email")
-	name = mappedClaim(claims, provider.ClaimMapping, "name", "name", "display_name")
-	return subject, email, name, nil
-}
-
-func (s *Service) resolveMappedUser(ctx context.Context, provider Provider, subject, email, name, tenantHint string) (string, error) {
+func (s *Service) resolveMappedUser(ctx context.Context, provider Provider, subject, email, username, displayName, tenantHint string) (string, error) {
 	link, err := s.store.FindIdentityLink(ctx, provider.ID, subject)
 	if err == nil {
 		return link.UserID, nil
@@ -370,33 +429,51 @@ func (s *Service) resolveMappedUser(ctx context.Context, provider Provider, subj
 	if !errors.Is(err, ErrNotFound) {
 		return "", err
 	}
-	if !provider.AutoCreateUser {
-		return "", invalid("外部身份尚未绑定本平台账号")
-	}
 	if s.identity == nil {
 		return "", notReady("身份服务未就绪")
 	}
-	tenantID := strings.TrimSpace(tenantHint)
-	if tenantID == "" {
-		settings, err := s.store.Settings(ctx)
+
+	email = strings.TrimSpace(email)
+	username = strings.TrimSpace(username)
+	if existing, findErr := s.identity.FindUserForFederation(ctx, email, username); findErr == nil {
+		_, err = s.store.CreateIdentityLink(ctx, IdentityLink{
+			ProviderID:      provider.ID,
+			ExternalSubject: subject,
+			UserID:          existing.ID,
+		})
 		if err != nil {
 			return "", err
 		}
-		tenantID = strings.TrimSpace(settings.DefaultTenantID)
-		if tenantID == "" {
-			tenantID = strings.TrimSpace(s.runtime.DefaultTenantID)
-		}
+		_ = s.RecordEvent(ctx, AuthEvent{
+			EventType:  "identity_link.create",
+			Result:     ResultSuccess,
+			Protocol:   provider.Protocol,
+			ProviderID: provider.ID,
+			UserID:     existing.ID,
+			Username:   existing.Username,
+			Message:    "按邮箱或用户名自动绑定已有账号",
+		})
+		return existing.ID, nil
+	} else if !errors.Is(findErr, identity.ErrNotFound) {
+		return "", mapIdentityErr(findErr)
 	}
-	if tenantID == "" {
-		return "", invalid("自动开户需要配置默认租户")
+
+	if !provider.AutoCreateUser {
+		return "", invalid("外部身份尚未绑定本平台账号")
 	}
-	username := federatedUsername(provider.ID, subject)
-	nickname := strings.TrimSpace(name)
+	tenantID, err := s.resolveProvisionTenantID(ctx, tenantHint)
+	if err != nil {
+		return "", err
+	}
+	localUsername := federatedUsername(provider.ID, subject)
+	nickname := strings.TrimSpace(displayName)
 	if nickname == "" {
 		nickname = username
 	}
-	// Never auto-merge by email: always create a new local user for an unbound subject.
-	user, err := s.identity.CreateFederatedUser(ctx, username, nickname, strings.TrimSpace(email), tenantID)
+	if nickname == "" {
+		nickname = localUsername
+	}
+	user, err := s.identity.CreateFederatedUser(ctx, localUsername, nickname, email, tenantID)
 	if err != nil {
 		return "", mapIdentityErr(err)
 	}
@@ -420,6 +497,31 @@ func (s *Service) resolveMappedUser(ctx context.Context, provider Provider, subj
 	return user.ID, nil
 }
 
+func (s *Service) resolveProvisionTenantID(ctx context.Context, tenantHint string) (string, error) {
+	tenantID := strings.TrimSpace(tenantHint)
+	if tenantID == "" {
+		settings, err := s.store.Settings(ctx)
+		if err != nil {
+			return "", err
+		}
+		tenantID = strings.TrimSpace(settings.DefaultTenantID)
+	}
+	if tenantID == "" {
+		tenantID = strings.TrimSpace(s.runtime.DefaultTenantID)
+	}
+	if tenantID == "" && s.identity != nil {
+		id, err := s.identity.FirstActiveTenantID(ctx)
+		if err != nil {
+			return "", mapIdentityErr(err)
+		}
+		tenantID = id
+	}
+	if tenantID == "" {
+		return "", invalid("自动开户需要先创建租户，或配置 SSO_DEFAULT_TENANT_ID")
+	}
+	return tenantID, nil
+}
+
 func (s *Service) oauthConfig(ctx context.Context, provider Provider) (*oauth2.Config, error) {
 	secret, err := s.providerClientSecret(ctx, provider.ID)
 	if err != nil {
@@ -430,39 +532,26 @@ func (s *Service) oauthConfig(ctx context.Context, provider Provider) (*oauth2.C
 		return nil, invalid("提供方未配置 Redirect URI")
 	}
 	scopes := splitScopes(provider.Scopes)
-	if provider.Protocol == ProtocolOIDC {
-		hasOpenID := false
-		for _, scope := range scopes {
-			if scope == "openid" {
-				hasOpenID = true
-				break
-			}
-		}
-		if !hasOpenID {
-			scopes = append([]string{"openid"}, scopes...)
+	hasOpenID := false
+	for _, scope := range scopes {
+		if scope == "openid" {
+			hasOpenID = true
+			break
 		}
 	}
-	endpoint := oauth2.Endpoint{
-		AuthURL:  provider.AuthorizationURL,
-		TokenURL: provider.TokenURL,
+	if !hasOpenID {
+		scopes = append([]string{"openid"}, scopes...)
 	}
-	if provider.Protocol == ProtocolOIDC {
-		ctx = oidc.ClientContext(ctx, s.client())
-		p, err := oidc.NewProvider(ctx, provider.Issuer)
-		if err != nil {
-			return nil, invalid("无法加载 OIDC Discovery")
-		}
-		endpoint = p.Endpoint()
-	} else {
-		if endpoint.AuthURL == "" || endpoint.TokenURL == "" {
-			return nil, invalid("OAuth2 缺少 Authorization/Token URL")
-		}
+	ctx = oidc.ClientContext(ctx, s.client())
+	p, err := oidc.NewProvider(ctx, provider.Issuer)
+	if err != nil {
+		return nil, invalid(fmt.Sprintf("无法加载 OIDC Discovery（请确认 Issuer 可被 API 访问）: %s", provider.Issuer))
 	}
 	return &oauth2.Config{
 		ClientID:     provider.ClientID,
 		ClientSecret: secret,
 		RedirectURL:  redirectURI,
-		Endpoint:     endpoint,
+		Endpoint:     p.Endpoint(),
 		Scopes:       scopes,
 	}, nil
 }

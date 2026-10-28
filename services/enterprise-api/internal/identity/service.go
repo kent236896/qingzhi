@@ -20,6 +20,7 @@ func NewService(store Store) *Service {
 }
 
 type CreateTenantInput struct {
+	ID            string // optional; generated when empty
 	Name          string
 	Code          string
 	ContactUserID string
@@ -60,14 +61,15 @@ type UpdateOrganizationInput struct {
 }
 
 type CreateUserInput struct {
-	Username string
-	Password string
-	Nickname string
-	Remark   string
-	Email    string
-	Mobile   string
-	Sex      int
-	Avatar   string
+	Username             string
+	Password             string
+	Nickname             string
+	Remark               string
+	Email                string
+	Mobile               string
+	Sex                  int
+	Avatar               string
+	LocalPasswordEnabled *bool
 }
 
 type UpdateUserInput struct {
@@ -125,7 +127,11 @@ func (s *Service) CreateTenant(ctx context.Context, input CreateTenantInput) (Te
 		return Tenant{}, err
 	}
 	now := time.Now().UTC()
-	tenant.ID = newID()
+	if id := strings.TrimSpace(input.ID); id != "" {
+		tenant.ID = id
+	} else {
+		tenant.ID = newID()
+	}
 	tenant.CreateTime = now
 	tenant.UpdateTime = now
 	err := s.store.Transaction(ctx, func(tx Store) error {
@@ -1303,15 +1309,20 @@ func (s *Service) ListUsersWithAccess(ctx context.Context, tenantID string, quer
 }
 
 func (s *Service) CreateUser(ctx context.Context, input CreateUserInput) (User, error) {
+	localPasswordEnabled := true
+	if input.LocalPasswordEnabled != nil {
+		localPasswordEnabled = *input.LocalPasswordEnabled
+	}
 	user := User{
-		Username: strings.TrimSpace(input.Username),
-		Nickname: strings.TrimSpace(input.Nickname),
-		Remark:   strings.TrimSpace(input.Remark),
-		Email:    strings.TrimSpace(input.Email),
-		Mobile:   strings.TrimSpace(input.Mobile),
-		Sex:      input.Sex,
-		Avatar:   strings.TrimSpace(input.Avatar),
-		Status:   StatusNormal,
+		Username:             strings.TrimSpace(input.Username),
+		Nickname:             strings.TrimSpace(input.Nickname),
+		Remark:               strings.TrimSpace(input.Remark),
+		Email:                strings.TrimSpace(input.Email),
+		Mobile:               strings.TrimSpace(input.Mobile),
+		Sex:                  input.Sex,
+		Avatar:               strings.TrimSpace(input.Avatar),
+		Status:               StatusNormal,
+		LocalPasswordEnabled: localPasswordEnabled,
 	}
 	if err := validateUsername(user.Username); err != nil {
 		return User{}, err
@@ -1432,6 +1443,9 @@ func (s *Service) ChangeOwnPassword(ctx context.Context, userID, currentPassword
 	}
 	if err != nil {
 		return err
+	}
+	if !user.LocalPasswordEnabled {
+		return forbidden("当前账号不支持本地密码修改，请前往统一认证中心修改密码")
 	}
 	if !checkPassword(user.PasswordHash, currentPassword) {
 		return unauthorized("当前密码不正确")

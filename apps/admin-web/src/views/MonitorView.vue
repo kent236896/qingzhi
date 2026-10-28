@@ -143,7 +143,7 @@ onUnmounted(() => {
         </div>
 
         <t-card title="错误统计" :bordered="false">
-          <t-table row-key="type" :data="overview.errors" :columns="errorColumns" size="small" hover>
+          <t-table row-key="type" :data="overview.errors ?? []" :columns="errorColumns" size="small" hover>
             <template #type="{ row }">{{ errorTypeLabel(row.type) }}</template>
             <template #last_time="{ row }">{{ formatTime(row.last_time) }}</template>
             <template #empty>当前窗口没有错误</template>
@@ -151,7 +151,7 @@ onUnmounted(() => {
         </t-card>
 
         <t-card title="最近错误" :bordered="false">
-          <t-table row-key="request_id" :data="overview.recent_errors" :columns="recentColumns" size="small" hover>
+          <t-table row-key="request_id" :data="overview.recent_errors ?? []" :columns="recentColumns" size="small" hover>
             <template #time="{ row }">{{ formatTime(row.time) }}</template>
             <template #duration_ms="{ row }">{{ row.duration_ms }} ms</template>
             <template #empty>当前窗口没有错误请求</template>
@@ -159,7 +159,7 @@ onUnmounted(() => {
         </t-card>
 
         <t-card title="未恢复告警" :bordered="false">
-          <t-table row-key="id" :data="overview.alerts" :columns="alertColumns" size="small" hover>
+          <t-table row-key="id" :data="overview.alerts ?? []" :columns="alertColumns" size="small" hover>
             <template #status="{ row }">
               <t-tag :theme="row.status === 'firing' ? 'danger' : 'success'" variant="light">{{ alertStatusLabel(row.status) }}</t-tag>
             </template>

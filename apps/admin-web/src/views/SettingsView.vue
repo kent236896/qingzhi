@@ -18,6 +18,7 @@ const saving = ref(false)
 const settings = ref<SystemSettings | null>(null)
 const baseURL = ref('')
 const apiKey = ref('')
+const weknoraTenantID = ref('')
 const models = ref<AiModel[]>([])
 const modelHint = ref('')
 const bindingDraft = ref<Record<string, string>>({})
@@ -51,6 +52,7 @@ function apply(item: SystemSettings) {
   settings.value = item
   baseURL.value = item.base_url
   apiKey.value = ''
+  weknoraTenantID.value = item.weknora_tenant_id || ''
 }
 
 async function loadModels() {
@@ -84,7 +86,11 @@ async function load() {
 async function saveConnection() {
   saving.value = true
   try {
-    const response = await updateSystemSettings({ base_url: baseURL.value.trim(), api_key: apiKey.value })
+    const response = await updateSystemSettings({
+      base_url: baseURL.value.trim(),
+      api_key: apiKey.value,
+      weknora_tenant_id: weknoraTenantID.value.trim(),
+    })
     apply(response.data)
     feedback.success(response.data.reachable ? '连接已保存' : '已保存，但暂时无法连通 WeKnora')
     await loadModels()
@@ -142,6 +148,9 @@ onMounted(() => {
               :disabled="!canUpdate"
               :placeholder="settings?.api_key_configured ? '已配置，留空保持不变' : '请填写 API Key'"
             />
+          </t-form-item>
+          <t-form-item label="WeKnora 空间 ID" help="与 API Key 所属空间一致。默认 10000；保存后以本页为准，不必依赖 .env">
+            <t-input v-model="weknoraTenantID" placeholder="10000" :disabled="!canUpdate" />
           </t-form-item>
           <p class="hint">
             {{ settings?.api_key_configured ? '密钥已配置' : '尚未配置密钥' }}

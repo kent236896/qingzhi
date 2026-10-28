@@ -34,19 +34,7 @@ func (s *Service) Overview(ctx context.Context) (Overview, error) {
 	if err != nil {
 		return Overview{}, err
 	}
-	oauthTotal, oauthEnabled, err := s.store.CountProviders(ctx, ProtocolOAuth2)
-	if err != nil {
-		return Overview{}, err
-	}
 	samlTotal, samlEnabled, err := s.store.CountProviders(ctx, ProtocolSAML)
-	if err != nil {
-		return Overview{}, err
-	}
-	clientTotal, clientEnabled, err := s.store.CountOAuthClients(ctx)
-	if err != nil {
-		return Overview{}, err
-	}
-	spTotal, spEnabled, err := s.store.CountSamlSPs(ctx)
 	if err != nil {
 		return Overview{}, err
 	}
@@ -67,21 +55,23 @@ func (s *Service) Overview(ctx context.Context) (Overview, error) {
 	if err != nil {
 		return Overview{}, err
 	}
+	if failures == nil {
+		failures = []AuthEvent{}
+	}
 	certs, err := s.store.ListCertificateWarnings(ctx, 30)
 	if err != nil {
 		return Overview{}, err
 	}
+	if certs == nil {
+		certs = []CertWarning{}
+	}
 	return Overview{
-		LocalLoginEnabled: settings.LocalLoginEnabled,
-		Issuer:            settings.Issuer,
-		OIDCProviders:     ProviderCount{Total: oidcTotal, Enabled: oidcEnabled},
-		OAuth2Providers:   ProviderCount{Total: oauthTotal, Enabled: oauthEnabled},
-		SAMLProviders:     ProviderCount{Total: samlTotal, Enabled: samlEnabled},
-		OAuthClients:      ClientCount{Total: clientTotal, Enabled: clientEnabled},
-		SAMLSps:           ClientCount{Total: spTotal, Enabled: spEnabled},
-		IdentityLinks:     links,
-		RecentLoginSuccess: success,
-		RecentLoginFailure: failure,
+		LocalLoginEnabled:      settings.LocalLoginEnabled,
+		OIDCProviders:          ProviderCount{Total: oidcTotal, Enabled: oidcEnabled},
+		SAMLProviders:          ProviderCount{Total: samlTotal, Enabled: samlEnabled},
+		IdentityLinks:          links,
+		RecentLoginSuccess:     success,
+		RecentLoginFailure:     failure,
 		RecentProtocolFailures: failures,
 		CertificateWarnings:    certs,
 		CollectedAt:            s.now().UTC(),
@@ -93,23 +83,26 @@ func (s *Service) GetSettings(ctx context.Context) (Settings, error) {
 	return s.store.Settings(ctx)
 }
 
-// UpdateSettings updates local login and issuer policy.
+// UpdateSettings updates local login and client federation policy.
 func (s *Service) UpdateSettings(ctx context.Context, item Settings, actor string) (Settings, error) {
-	item.Issuer = strings.TrimSpace(item.Issuer)
-	if item.Issuer != "" {
-		if err := validateAbsoluteURL(item.Issuer, "Issuer"); err != nil {
-			return Settings{}, err
-		}
+	current, err := s.store.Settings(ctx)
+	if err != nil {
+		return Settings{}, err
 	}
 	item.FrontendBaseURL = strings.TrimSpace(item.FrontendBaseURL)
 	if item.FrontendBaseURL != "" {
-		if err := validateAbsoluteURL(item.FrontendBaseURL, "前端基址"); err != nil {
+		base, err := canonicalizeFrontendBase(item.FrontendBaseURL)
+		if err != nil {
 			return Settings{}, err
 		}
+		item.FrontendBaseURL = base
 	}
 	item.DefaultTenantID = strings.TrimSpace(item.DefaultTenantID)
 	item.Updater = clip(actor, 64)
 	item.UpdatedAt = s.now().UTC()
+	// Preserve SP signing material managed separately.
+	item.SPCertificatePEM = current.SPCertificatePEM
+	item.SPKeySecretID = current.SPKeySecretID
 	if err := s.store.SaveSettings(ctx, item); err != nil {
 		return Settings{}, err
 	}
@@ -119,7 +112,7 @@ func (s *Service) UpdateSettings(ctx context.Context, item Settings, actor strin
 		Message:   "更新 SSO 全局策略",
 		Username:  actor,
 	})
-	return item, nil
+	return s.store.Settings(ctx)
 }
 
 func (s *Service) ListProviders(ctx context.Context, query ListQuery) (Page[Provider], error) {
@@ -217,220 +210,6 @@ func (s *Service) SetProviderStatus(ctx context.Context, id, status, actor strin
 		ProviderID: id,
 		Message:    "更新提供方状态为 " + status,
 		Username:   actor,
-	})
-	return nil
-}
-
-func (s *Service) ListOAuthClients(ctx context.Context, query ListQuery) (Page[OAuthClient], error) {
-	query = normalizeList(query)
-	items, total, err := s.store.ListOAuthClients(ctx, query)
-	if err != nil {
-		return Page[OAuthClient]{}, err
-	}
-	return Page[OAuthClient]{Items: items, Page: query.Page, PageSize: query.PageSize, Total: total}, nil
-}
-
-func (s *Service) GetOAuthClient(ctx context.Context, id string) (OAuthClient, error) {
-	return s.store.GetOAuthClient(ctx, id)
-}
-
-func (s *Service) CreateOAuthClient(ctx context.Context, input OAuthClientInput, actor string) (OAuthClientCreated, error) {
-	item, err := s.validateOAuthClientInput(input, true)
-	if err != nil {
-		return OAuthClientCreated{}, err
-	}
-	clientID, err := randomClientID()
-	if err != nil {
-		return OAuthClientCreated{}, err
-	}
-	item.ClientID = clientID
-	plaintext := strings.TrimSpace(input.ClientSecret)
-	if item.ClientType == ClientConfidential {
-		if plaintext == "" {
-			plaintext, err = randomClientSecret()
-			if err != nil {
-				return OAuthClientCreated{}, err
-			}
-		}
-	} else if plaintext != "" {
-		return OAuthClientCreated{}, invalid("公开客户端不能配置 Client Secret")
-	}
-	var secretID *string
-	if plaintext != "" {
-		id, err := s.storeSecret(ctx, "oauth_client_secret", plaintext)
-		if err != nil {
-			return OAuthClientCreated{}, err
-		}
-		secretID = &id
-	}
-	created, err := s.store.CreateOAuthClient(ctx, item, secretID)
-	if err != nil {
-		return OAuthClientCreated{}, err
-	}
-	_ = s.RecordEvent(ctx, AuthEvent{
-		EventType: "oauth_client.create",
-		Result:    ResultSuccess,
-		Protocol:  ProtocolOIDC,
-		ClientID:  created.ClientID,
-		Message:   "注册 OAuth 客户端",
-		Username:  actor,
-	})
-	out := OAuthClientCreated{OAuthClient: created}
-	if plaintext != "" {
-		out.ClientSecret = plaintext
-	}
-	return out, nil
-}
-
-func (s *Service) UpdateOAuthClient(ctx context.Context, id string, input OAuthClientInput, actor string) (OAuthClient, error) {
-	existing, err := s.store.GetOAuthClient(ctx, id)
-	if err != nil {
-		return OAuthClient{}, err
-	}
-	item, err := s.validateOAuthClientInput(input, false)
-	if err != nil {
-		return OAuthClient{}, err
-	}
-	item.ID = existing.ID
-	item.ClientID = existing.ClientID
-	item.ClientType = existing.ClientType
-	updated, err := s.store.UpdateOAuthClient(ctx, item, nil)
-	if err != nil {
-		return OAuthClient{}, err
-	}
-	_ = s.RecordEvent(ctx, AuthEvent{
-		EventType: "oauth_client.update",
-		Result:    ResultSuccess,
-		Protocol:  ProtocolOIDC,
-		ClientID:  updated.ClientID,
-		Message:   "更新 OAuth 客户端",
-		Username:  actor,
-	})
-	return updated, nil
-}
-
-func (s *Service) RotateOAuthClientSecret(ctx context.Context, id, actor string) (OAuthClientCreated, error) {
-	existing, err := s.store.GetOAuthClient(ctx, id)
-	if err != nil {
-		return OAuthClientCreated{}, err
-	}
-	if existing.ClientType != ClientConfidential {
-		return OAuthClientCreated{}, invalid("公开客户端不能轮换 Client Secret")
-	}
-	plaintext, err := randomClientSecret()
-	if err != nil {
-		return OAuthClientCreated{}, err
-	}
-	secretID, err := s.storeSecret(ctx, "oauth_client_secret", plaintext)
-	if err != nil {
-		return OAuthClientCreated{}, err
-	}
-	updated, err := s.store.UpdateOAuthClient(ctx, existing, &secretID)
-	if err != nil {
-		return OAuthClientCreated{}, err
-	}
-	_ = s.RecordEvent(ctx, AuthEvent{
-		EventType: "oauth_client.rotate_secret",
-		Result:    ResultSuccess,
-		Protocol:  ProtocolOIDC,
-		ClientID:  updated.ClientID,
-		Message:   "轮换 OAuth 客户端密钥",
-		Username:  actor,
-	})
-	return OAuthClientCreated{OAuthClient: updated, ClientSecret: plaintext}, nil
-}
-
-func (s *Service) SetOAuthClientStatus(ctx context.Context, id, status, actor string) error {
-	status = strings.TrimSpace(status)
-	if status != StatusEnabled && status != StatusDisabled && status != StatusRevoked {
-		return invalid("状态不合法")
-	}
-	if err := s.store.SetOAuthClientStatus(ctx, id, status); err != nil {
-		return err
-	}
-	_ = s.RecordEvent(ctx, AuthEvent{
-		EventType: "oauth_client.status",
-		Result:    ResultSuccess,
-		ClientID:  id,
-		Message:   "更新 OAuth 客户端状态为 " + status,
-		Username:  actor,
-	})
-	return nil
-}
-
-func (s *Service) ListSamlSPs(ctx context.Context, query ListQuery) (Page[SamlSP], error) {
-	query = normalizeList(query)
-	items, total, err := s.store.ListSamlSPs(ctx, query)
-	if err != nil {
-		return Page[SamlSP]{}, err
-	}
-	return Page[SamlSP]{Items: items, Page: query.Page, PageSize: query.PageSize, Total: total}, nil
-}
-
-func (s *Service) GetSamlSP(ctx context.Context, id string) (SamlSP, error) {
-	return s.store.GetSamlSP(ctx, id)
-}
-
-func (s *Service) CreateSamlSP(ctx context.Context, input SamlSPInput, actor string) (SamlSP, error) {
-	item, err := s.validateSamlSPInput(input)
-	if err != nil {
-		return SamlSP{}, err
-	}
-	created, err := s.store.CreateSamlSP(ctx, item)
-	if err != nil {
-		return SamlSP{}, err
-	}
-	_ = s.RecordEvent(ctx, AuthEvent{
-		EventType: "saml_sp.create",
-		Result:    ResultSuccess,
-		Protocol:  ProtocolSAML,
-		ClientID:  created.EntityID,
-		Message:   "注册 SAML 服务提供方",
-		Username:  actor,
-	})
-	return created, nil
-}
-
-func (s *Service) UpdateSamlSP(ctx context.Context, id string, input SamlSPInput, actor string) (SamlSP, error) {
-	existing, err := s.store.GetSamlSP(ctx, id)
-	if err != nil {
-		return SamlSP{}, err
-	}
-	item, err := s.validateSamlSPInput(input)
-	if err != nil {
-		return SamlSP{}, err
-	}
-	item.ID = existing.ID
-	updated, err := s.store.UpdateSamlSP(ctx, item)
-	if err != nil {
-		return SamlSP{}, err
-	}
-	_ = s.RecordEvent(ctx, AuthEvent{
-		EventType: "saml_sp.update",
-		Result:    ResultSuccess,
-		Protocol:  ProtocolSAML,
-		ClientID:  updated.EntityID,
-		Message:   "更新 SAML 服务提供方",
-		Username:  actor,
-	})
-	return updated, nil
-}
-
-func (s *Service) SetSamlSPStatus(ctx context.Context, id, status, actor string) error {
-	status = strings.TrimSpace(status)
-	if status != StatusEnabled && status != StatusDisabled {
-		return invalid("状态不合法")
-	}
-	if err := s.store.SetSamlSPStatus(ctx, id, status); err != nil {
-		return err
-	}
-	_ = s.RecordEvent(ctx, AuthEvent{
-		EventType: "saml_sp.status",
-		Result:    ResultSuccess,
-		Protocol:  ProtocolSAML,
-		ClientID:  id,
-		Message:   "更新 SAML SP 状态为 " + status,
-		Username:  actor,
 	})
 	return nil
 }
@@ -534,10 +313,6 @@ func (s *Service) validateProviderInput(input ProviderInput, creating bool) (Pro
 		AutoLogin:        input.AutoLogin,
 		AutoCreateUser:   input.AutoCreateUser,
 		DiscoveryURL:     strings.TrimSpace(input.DiscoveryURL),
-		AuthorizationURL: strings.TrimSpace(input.AuthorizationURL),
-		TokenURL:         strings.TrimSpace(input.TokenURL),
-		UserinfoURL:      strings.TrimSpace(input.UserinfoURL),
-		JwksURL:          strings.TrimSpace(input.JwksURL),
 		ClientID:         strings.TrimSpace(input.ClientID),
 		RedirectURI:      strings.TrimSpace(input.RedirectURI),
 		Scopes:           strings.TrimSpace(input.Scopes),
@@ -573,31 +348,15 @@ func (s *Service) validateProviderInput(input ProviderInput, creating bool) (Pro
 		if item.DiscoveryURL == "" {
 			item.DiscoveryURL = strings.TrimRight(item.Issuer, "/") + "/.well-known/openid-configuration"
 		}
-	case ProtocolOAuth2:
-		if item.AuthorizationURL == "" || item.TokenURL == "" {
-			return Provider{}, invalid("OAuth2 必须配置 Authorization URL 与 Token URL")
-		}
-		if err := validateAbsoluteURL(item.AuthorizationURL, "Authorization URL"); err != nil {
-			return Provider{}, err
-		}
-		if err := validateAbsoluteURL(item.TokenURL, "Token URL"); err != nil {
-			return Provider{}, err
-		}
-		if item.UserinfoURL == "" {
-			return Provider{}, invalid("通用 OAuth2 登录必须配置可信的用户信息端点")
-		}
-		if err := validateAbsoluteURL(item.UserinfoURL, "UserInfo URL"); err != nil {
-			return Provider{}, err
-		}
-		if item.ClientID == "" {
-			return Provider{}, invalid("Client ID 不能为空")
-		}
 	case ProtocolSAML:
 		if item.EntityID == "" {
 			return Provider{}, invalid("IdP Entity ID 不能为空")
 		}
 		if item.SSOURL == "" && item.MetadataURL == "" {
 			return Provider{}, invalid("SAML 必须提供 SSO URL 或 Metadata URL")
+		}
+		if item.NameIDFormat == "" {
+			item.NameIDFormat = "urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress"
 		}
 		if item.SSOURL != "" {
 			if err := validateAbsoluteURL(item.SSOURL, "SSO URL"); err != nil {
@@ -614,137 +373,6 @@ func (s *Service) validateProviderInput(input ProviderInput, creating bool) (Pro
 		}
 	}
 	return item, nil
-}
-
-func (s *Service) validateOAuthClientInput(input OAuthClientInput, creating bool) (OAuthClient, error) {
-	name := strings.TrimSpace(input.Name)
-	if name == "" || utf8.RuneCountInString(name) > 128 {
-		return OAuthClient{}, invalid("客户端名称不合法")
-	}
-	clientType := strings.TrimSpace(input.ClientType)
-	if creating {
-		if clientType != ClientPublic && clientType != ClientConfidential {
-			return OAuthClient{}, invalid("客户端类型不合法")
-		}
-	} else if clientType == "" {
-		clientType = ClientConfidential
-	}
-	status := strings.TrimSpace(input.Status)
-	if status == "" {
-		status = StatusDisabled
-	}
-	if status != StatusEnabled && status != StatusDisabled && status != StatusRevoked {
-		return OAuthClient{}, invalid("状态不合法")
-	}
-	pkce := strings.TrimSpace(input.PKCEPolicy)
-	if pkce == "" {
-		if clientType == ClientPublic {
-			pkce = PKCERequired
-		} else {
-			pkce = PKCEOptional
-		}
-	}
-	if pkce != PKCERequired && pkce != PKCEOptional && pkce != PKCEForbidden {
-		return OAuthClient{}, invalid("PKCE 策略不合法")
-	}
-	if clientType == ClientPublic && pkce != PKCERequired {
-		return OAuthClient{}, invalid("公开客户端必须强制 PKCE")
-	}
-	uris := normalizeExactURIs(input.RedirectURIs)
-	if len(uris) == 0 {
-		return OAuthClient{}, invalid("至少配置一个精确 Redirect URI")
-	}
-	for _, uri := range uris {
-		if strings.ContainsAny(uri, "*") {
-			return OAuthClient{}, invalid("Redirect URI 不允许通配符")
-		}
-		if err := validateAbsoluteURL(uri, "Redirect URI"); err != nil {
-			return OAuthClient{}, err
-		}
-	}
-	grants := normalizeListValues(input.GrantTypes, []string{"authorization_code"})
-	for _, g := range grants {
-		if g != "authorization_code" && g != "refresh_token" {
-			return OAuthClient{}, invalid("不支持的授权类型")
-		}
-	}
-	scopes := normalizeListValues(input.Scopes, []string{"openid"})
-	accessTTL := input.AccessTokenTTLSec
-	if accessTTL == 0 {
-		accessTTL = 3600
-	}
-	refreshTTL := input.RefreshTokenTTLSec
-	if refreshTTL == 0 {
-		refreshTTL = 2592000
-	}
-	idTTL := input.IDTokenTTLSec
-	if idTTL == 0 {
-		idTTL = 3600
-	}
-	if accessTTL < 60 || accessTTL > 86400 || idTTL < 60 || idTTL > 86400 || refreshTTL < 0 || refreshTTL > 31536000 {
-		return OAuthClient{}, invalid("令牌有效期不合法")
-	}
-	return OAuthClient{
-		Name:               name,
-		Description:        clip(strings.TrimSpace(input.Description), 500),
-		ClientType:         clientType,
-		Status:             status,
-		RedirectURIs:       uris,
-		GrantTypes:         grants,
-		Scopes:             scopes,
-		PKCEPolicy:         pkce,
-		AccessTokenTTLSec:  accessTTL,
-		RefreshTokenTTLSec: refreshTTL,
-		IDTokenTTLSec:      idTTL,
-	}, nil
-}
-
-func (s *Service) validateSamlSPInput(input SamlSPInput) (SamlSP, error) {
-	name := strings.TrimSpace(input.Name)
-	if name == "" || utf8.RuneCountInString(name) > 128 {
-		return SamlSP{}, invalid("SP 名称不合法")
-	}
-	entityID := strings.TrimSpace(input.EntityID)
-	if entityID == "" {
-		return SamlSP{}, invalid("Entity ID 不能为空")
-	}
-	status := strings.TrimSpace(input.Status)
-	if status == "" {
-		status = StatusDisabled
-	}
-	if status != StatusEnabled && status != StatusDisabled {
-		return SamlSP{}, invalid("状态不合法")
-	}
-	acs := normalizeExactURIs(input.ACSURLs)
-	if len(acs) == 0 {
-		return SamlSP{}, invalid("至少配置一个 ACS URL")
-	}
-	for _, uri := range acs {
-		if strings.ContainsAny(uri, "*") {
-			return SamlSP{}, invalid("ACS URL 不允许通配符")
-		}
-		if err := validateAbsoluteURL(uri, "ACS URL"); err != nil {
-			return SamlSP{}, err
-		}
-	}
-	if utf8.RuneCountInString(input.CertificatePEM) > 16*1024 {
-		return SamlSP{}, invalid("证书内容过大")
-	}
-	mapping := input.AttributeMapping
-	if mapping == nil {
-		mapping = map[string]any{}
-	}
-	return SamlSP{
-		Name:              name,
-		EntityID:          entityID,
-		Status:            status,
-		ACSURLs:           acs,
-		SLOURL:            strings.TrimSpace(input.SLOURL),
-		NameIDFormat:      defaultString(strings.TrimSpace(input.NameIDFormat), "urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress"),
-		AttributeMapping:  mapping,
-		AllowIDPInitiated: input.AllowIDPInitiated,
-		CertificatePEM:    strings.TrimSpace(input.CertificatePEM),
-	}, nil
 }
 
 func normalizeList(query ListQuery) ListQuery {
@@ -765,7 +393,7 @@ func normalizeList(query ListQuery) ListQuery {
 }
 
 func validProtocol(v string) bool {
-	return v == ProtocolOIDC || v == ProtocolOAuth2 || v == ProtocolSAML
+	return v == ProtocolOIDC || v == ProtocolSAML
 }
 
 func validateAbsoluteURL(raw, label string) error {

@@ -35,7 +35,6 @@ const resultOptions = [
 const protocolOptions = [
   { label: '全部协议', value: '' },
   { label: 'OIDC', value: 'oidc' },
-  { label: 'OAuth 2.0', value: 'oauth2' },
   { label: 'SAML 2.0', value: 'saml' },
 ]
 

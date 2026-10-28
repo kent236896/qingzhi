@@ -26,9 +26,30 @@ type Config struct {
 	CORS      CORSConfig
 	Auth      AuthConfig
 	SSO       SSOConfig
+	Bootstrap BootstrapConfig
 	Monitor   MonitorConfig
 	WeKnora   WeKnoraConfig
 	Knowledge KnowledgeConfig
+}
+
+// BootstrapConfig seeds the first tenant and admin when the database is empty.
+// Empty fields are generated at startup and printed once to the console.
+type BootstrapConfig struct {
+	Enabled       bool
+	TenantID      string
+	TenantName    string
+	TenantCode    string
+	AdminUsername string
+	AdminPassword string
+	AdminNickname string
+}
+
+// Secrets returns values that must never appear in client responses or logs.
+func (b BootstrapConfig) Secrets() []string {
+	if b.AdminPassword == "" {
+		return nil
+	}
+	return []string{b.AdminPassword}
 }
 
 // SSOConfig controls federation issuer and secret encryption.
@@ -127,18 +148,25 @@ type MonitorConfig struct {
 // WeKnoraConfig connects this API to a self-hosted WeKnora service.
 // BaseURL is host and port only. The API key never leaves the server.
 type WeKnoraConfig struct {
-	BaseURL       string
-	APIKey        string
-	Timeout       time.Duration
-	OllamaEnabled bool
+	BaseURL            string
+	APIKey             string
+	Timeout            time.Duration
+	OllamaEnabled      bool
+	TenantID           string
+	ExternalUserHMAC   string
+	ExternalUserTokenTTL time.Duration
 }
 
 // Secrets returns values that must be redacted.
 func (w WeKnoraConfig) Secrets() []string {
-	if w.APIKey == "" {
-		return nil
+	out := make([]string, 0, 2)
+	if w.APIKey != "" {
+		out = append(out, w.APIKey)
 	}
-	return []string{w.APIKey}
+	if w.ExternalUserHMAC != "" {
+		out = append(out, w.ExternalUserHMAC)
+	}
+	return out
 }
 
 // Enabled reports whether a remote knowledge service is configured.
@@ -253,6 +281,13 @@ func Load() (Config, error) {
 	cfg.SSO.LocalLoginEnabled = parseBoolDefault(env.getenv("SSO_LOCAL_LOGIN_ENABLED", ""), true)
 	cfg.SSO.FrontendBaseURL = strings.TrimSpace(env.getenv("SSO_FRONTEND_BASE_URL", ""))
 	cfg.SSO.DefaultTenantID = strings.TrimSpace(env.getenv("SSO_DEFAULT_TENANT_ID", ""))
+	cfg.Bootstrap.Enabled = parseBoolDefault(env.getenv("BOOTSTRAP_ENABLED", ""), true)
+	cfg.Bootstrap.TenantID = strings.TrimSpace(env.getenv("BOOTSTRAP_TENANT_ID", ""))
+	cfg.Bootstrap.TenantName = strings.TrimSpace(env.getenv("BOOTSTRAP_TENANT_NAME", ""))
+	cfg.Bootstrap.TenantCode = strings.TrimSpace(env.getenv("BOOTSTRAP_TENANT_CODE", ""))
+	cfg.Bootstrap.AdminUsername = strings.TrimSpace(env.getenv("BOOTSTRAP_ADMIN_USERNAME", ""))
+	cfg.Bootstrap.AdminPassword = env.getenv("BOOTSTRAP_ADMIN_PASSWORD", "")
+	cfg.Bootstrap.AdminNickname = strings.TrimSpace(env.getenv("BOOTSTRAP_ADMIN_NICKNAME", ""))
 	if cfg.Monitor.Window, err = parseDuration("MONITOR_WINDOW", env.getenv("MONITOR_WINDOW", ""), "5m"); err != nil {
 		return Config{}, err
 	}
@@ -294,6 +329,17 @@ func Load() (Config, error) {
 	cfg.WeKnora.OllamaEnabled, err = parseBool("WEKNORA_OLLAMA_ENABLED", env.getenv("WEKNORA_OLLAMA_ENABLED", "false"))
 	if err != nil {
 		return Config{}, err
+	}
+	cfg.WeKnora.TenantID = strings.TrimSpace(env.getenv("WEKNORA_TENANT_ID", "10000"))
+	if cfg.WeKnora.TenantID == "" {
+		cfg.WeKnora.TenantID = "10000"
+	}
+	cfg.WeKnora.ExternalUserHMAC = strings.TrimSpace(env.getenv("WEKNORA_EXTERNAL_USER_HMAC", ""))
+	if cfg.WeKnora.ExternalUserTokenTTL, err = parseSecondsOrDuration("WEKNORA_EXTERNAL_USER_TOKEN_TTL", env.getenv("WEKNORA_EXTERNAL_USER_TOKEN_TTL", ""), 600); err != nil {
+		return Config{}, err
+	}
+	if cfg.WeKnora.ExternalUserTokenTTL > 24*time.Hour {
+		cfg.WeKnora.ExternalUserTokenTTL = 24 * time.Hour
 	}
 	if cfg.Knowledge.MaxFileMB, err = parsePositiveInt("KB_UPLOAD_MAX_FILE_MB", env.getenv("KB_UPLOAD_MAX_FILE_MB", ""), "20"); err != nil {
 		return Config{}, err

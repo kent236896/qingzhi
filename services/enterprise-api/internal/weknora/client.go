@@ -62,7 +62,13 @@ func NewHTTPClient(baseURL, apiKey string, timeout time.Duration) *HTTPClient {
 	if timeout <= 0 {
 		timeout = 30 * time.Second
 	}
-	client := &HTTPClient{timeout: timeout, http: &http.Client{Timeout: timeout}}
+	client := &HTTPClient{
+		timeout: timeout,
+		http: &http.Client{
+			Timeout:   timeout,
+			Transport: wrapExternalTokenTransport(http.DefaultTransport),
+		},
+	}
 	client.Configure(baseURL, apiKey)
 	return client
 }
@@ -78,11 +84,19 @@ func (c *HTTPClient) Configure(baseURL, apiKey string) {
 	if timeout <= 0 {
 		timeout = 30 * time.Second
 	}
-	next := sdk.NewClient(base, sdk.WithAPIKey(key), sdk.WithTimeout(timeout))
+	// Inject X-External-User-Token from context on every WeKnora hop.
+	// Do not use WithTimeout for the SDK stream client path used by chat —
+	// ordinary JSON calls still use a timeout via a separate http.Client below.
+	transport := wrapExternalTokenTransport(http.DefaultTransport)
+	next := sdk.NewClient(base,
+		sdk.WithAPIKey(key),
+		sdk.WithTransport(transport),
+	)
 	c.mu.Lock()
 	c.sdk = next
 	c.baseURL = base
 	c.apiKey = key
+	c.http = &http.Client{Timeout: timeout, Transport: transport}
 	c.mu.Unlock()
 }
 

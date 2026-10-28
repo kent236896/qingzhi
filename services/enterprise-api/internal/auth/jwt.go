@@ -13,12 +13,18 @@ import (
 
 // Claims are the JWT payload fields used by the admin API.
 type Claims struct {
-	UserID   string `json:"uid"`
-	Username string `json:"uname"`
-	TenantID string `json:"tid"`
-	IssuedAt int64  `json:"iat"`
-	Expires  int64  `json:"exp"`
+	UserID     string `json:"uid"`
+	Username   string `json:"uname"`
+	TenantID   string `json:"tid"`
+	AuthMethod string `json:"amethod,omitempty"`
+	IssuedAt   int64  `json:"iat"`
+	Expires    int64  `json:"exp"`
 }
+
+const (
+	AuthMethodLocal = "local"
+	AuthMethodSSO   = "sso"
+)
 
 var (
 	errTokenMalformed = errors.New("token malformed")
@@ -47,18 +53,28 @@ func NewTokenIssuer(secret string, ttl time.Duration) (*TokenIssuer, error) {
 
 // Issue returns a signed access token and its expiry time.
 func (i *TokenIssuer) Issue(userID, username, tenantID string, now time.Time) (string, time.Time, error) {
+	return i.IssueWithMethod(userID, username, tenantID, AuthMethodLocal, now)
+}
+
+// IssueWithMethod records how the platform session was established (local or sso).
+func (i *TokenIssuer) IssueWithMethod(userID, username, tenantID, authMethod string, now time.Time) (string, time.Time, error) {
 	if now.IsZero() {
 		now = time.Now().UTC()
 	} else {
 		now = now.UTC()
 	}
 	exp := now.Add(i.ttl)
+	method := strings.TrimSpace(authMethod)
+	if method == "" {
+		method = AuthMethodLocal
+	}
 	claims := Claims{
-		UserID:   userID,
-		Username: username,
-		TenantID: tenantID,
-		IssuedAt: now.Unix(),
-		Expires:  exp.Unix(),
+		UserID:     userID,
+		Username:   username,
+		TenantID:   tenantID,
+		AuthMethod: method,
+		IssuedAt:   now.Unix(),
+		Expires:    exp.Unix(),
 	}
 	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"HS256","typ":"JWT"}`))
 	payloadJSON, err := json.Marshal(claims)

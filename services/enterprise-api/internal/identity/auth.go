@@ -49,6 +49,9 @@ func (s *Service) Authenticate(ctx context.Context, input LoginInput) (LoginResu
 	if user.Status != StatusNormal {
 		return LoginResult{}, unauthorized("账号已停用")
 	}
+	if !user.LocalPasswordEnabled {
+		return LoginResult{}, unauthorized("该账号不支持本地密码登录，请使用统一认证中心登录")
+	}
 	if !checkPassword(user.PasswordHash, input.Password) {
 		return LoginResult{}, unauthorized("用户名或密码错误")
 	}
@@ -104,6 +107,31 @@ func (s *Service) Authenticate(ctx context.Context, input LoginInput) (LoginResu
 	_ = s.store.UpdateUserLogin(ctx, user.ID, strings.TrimSpace(input.LoginIP), time.Now().UTC())
 	user.PasswordHash = ""
 	return LoginResult{User: user, TenantID: tenantID, Access: access}, nil
+}
+
+// FirstActiveTenantID returns the oldest normal tenant. Used when SSO auto-provision
+// has no explicit default tenant configured after a fresh deploy.
+func (s *Service) FirstActiveTenantID(ctx context.Context) (string, error) {
+	// ListTenants is newest-first; scan a page and pick the earliest create_time.
+	items, _, err := s.store.ListTenants(ctx, "", 1, 100)
+	if err != nil {
+		return "", err
+	}
+	var best *Tenant
+	for i := range items {
+		item := items[i]
+		if item.Status != StatusNormal {
+			continue
+		}
+		if best == nil || item.CreateTime.Before(best.CreateTime) {
+			copy := item
+			best = &copy
+		}
+	}
+	if best == nil {
+		return "", notFound("系统中尚无可用租户，请先创建租户")
+	}
+	return best.ID, nil
 }
 
 // LoginFederated establishes a local session for an already-mapped external identity.
@@ -176,6 +204,36 @@ func (s *Service) LoginFederated(ctx context.Context, userID, tenantID, loginIP 
 	return LoginResult{User: user, TenantID: tenantID, Access: access}, nil
 }
 
+// FindUserForFederation looks up a local account for first-time IdP binding.
+// Prefer email (case-insensitive), then exact username. Disabled accounts are skipped.
+func (s *Service) FindUserForFederation(ctx context.Context, email, username string) (User, error) {
+	email = strings.TrimSpace(email)
+	username = strings.TrimSpace(username)
+	if email != "" {
+		user, err := s.store.FindUserByEmail(ctx, email)
+		if err == nil {
+			if user.Status == StatusNormal {
+				return user, nil
+			}
+		} else if !errors.Is(err, ErrNotFound) {
+			return User{}, err
+		}
+	}
+	if username != "" {
+		user, err := s.store.FindUserByUsername(ctx, username)
+		if err == nil {
+			if user.Status == StatusNormal {
+				return user, nil
+			}
+			return User{}, ErrNotFound
+		}
+		if !errors.Is(err, ErrNotFound) {
+			return User{}, err
+		}
+	}
+	return User{}, ErrNotFound
+}
+
 // CreateFederatedUser creates a minimum-privilege local account for an external subject.
 // Callers must never grant admin roles from external claims.
 func (s *Service) CreateFederatedUser(ctx context.Context, username, nickname, email, tenantID string) (User, error) {
@@ -183,12 +241,14 @@ func (s *Service) CreateFederatedUser(ctx context.Context, username, nickname, e
 	if err != nil {
 		return User{}, err
 	}
+	disabled := false
 	user, err := s.CreateUser(ctx, CreateUserInput{
-		Username: username,
-		Password: password,
-		Nickname: nickname,
-		Email:    email,
-		Remark:   "federated",
+		Username:             username,
+		Password:             password,
+		Nickname:             nickname,
+		Email:                email,
+		Remark:               "federated",
+		LocalPasswordEnabled: &disabled,
 	})
 	if err != nil {
 		return User{}, err

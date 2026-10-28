@@ -6,10 +6,6 @@ export interface ProviderCount {
   enabled: number
 }
 
-export interface ClientCount {
-  total: number
-  enabled: number
-}
 
 export interface AuthEvent {
   id: string
@@ -37,12 +33,8 @@ export interface CertWarning {
 
 export interface SsoOverview {
   local_login_enabled: boolean
-  issuer: string
   oidc_providers: ProviderCount
-  oauth2_providers: ProviderCount
   saml_providers: ProviderCount
-  oauth_clients: ClientCount
-  saml_sps: ClientCount
   identity_links: number
   recent_login_success: number
   recent_login_failure: number
@@ -53,7 +45,8 @@ export interface SsoOverview {
 
 export interface SsoSettings {
   local_login_enabled: boolean
-  issuer: string
+  default_tenant_id: string
+  frontend_base_url: string
   updater: string
   updated_at: string
 }
@@ -68,42 +61,22 @@ export interface SsoProvider {
   display_on_login: boolean
   auto_login: boolean
   auto_create_user: boolean
+  discovery_url?: string
   client_id?: string
   client_secret_set: boolean
   client_secret_hint?: string
+  redirect_uri?: string
+  scopes?: string
+  entity_id?: string
+  metadata_url?: string
+  sso_url?: string
+  slo_url?: string
+  idp_certificate_pem?: string
+  sp_entity_id?: string
+  acs_url?: string
+  name_id_format?: string
   last_success_at?: string
   last_error?: string
-  created_at: string
-  updated_at: string
-}
-
-export interface OAuthClient {
-  id: string
-  client_id: string
-  name: string
-  description: string
-  client_type: string
-  status: string
-  redirect_uris: string[]
-  grant_types: string[]
-  scopes: string[]
-  pkce_policy: string
-  client_secret_set: boolean
-  client_secret_hint?: string
-  client_secret?: string
-  last_used_at?: string
-  created_at: string
-  updated_at: string
-}
-
-export interface SamlSP {
-  id: string
-  name: string
-  entity_id: string
-  status: string
-  acs_urls: string[]
-  allow_idp_initiated: boolean
-  certificate_not_after?: string
   created_at: string
   updated_at: string
 }
@@ -135,6 +108,10 @@ export function listSsoProviders(params: ListParams & { protocol?: string; statu
   return http.get<PageResult<SsoProvider>>('/api/v1/sso/providers', { params })
 }
 
+export function getSsoProvider(id: string) {
+  return http.get<SsoProvider>(`/api/v1/sso/providers/${id}`)
+}
+
 export function createSsoProvider(body: Record<string, unknown>) {
   return http.post<SsoProvider>('/api/v1/sso/providers', body)
 }
@@ -145,42 +122,6 @@ export function updateSsoProvider(id: string, body: Record<string, unknown>) {
 
 export function setSsoProviderStatus(id: string, status: string) {
   return http.patch(`/api/v1/sso/providers/${id}/status`, { status })
-}
-
-export function listOAuthClients(params: ListParams & { status?: string } = {}) {
-  return http.get<PageResult<OAuthClient>>('/api/v1/sso/oauth-clients', { params })
-}
-
-export function createOAuthClient(body: Record<string, unknown>) {
-  return http.post<OAuthClient>('/api/v1/sso/oauth-clients', body)
-}
-
-export function updateOAuthClient(id: string, body: Record<string, unknown>) {
-  return http.put<OAuthClient>(`/api/v1/sso/oauth-clients/${id}`, body)
-}
-
-export function rotateOAuthClientSecret(id: string) {
-  return http.post<OAuthClient>(`/api/v1/sso/oauth-clients/${id}/rotate-secret`)
-}
-
-export function setOAuthClientStatus(id: string, status: string) {
-  return http.patch(`/api/v1/sso/oauth-clients/${id}/status`, { status })
-}
-
-export function listSamlSps(params: ListParams & { status?: string } = {}) {
-  return http.get<PageResult<SamlSP>>('/api/v1/sso/saml-sps', { params })
-}
-
-export function createSamlSp(body: Record<string, unknown>) {
-  return http.post<SamlSP>('/api/v1/sso/saml-sps', body)
-}
-
-export function updateSamlSp(id: string, body: Record<string, unknown>) {
-  return http.put<SamlSP>(`/api/v1/sso/saml-sps/${id}`, body)
-}
-
-export function setSamlSpStatus(id: string, status: string) {
-  return http.patch(`/api/v1/sso/saml-sps/${id}/status`, { status })
 }
 
 export function listIdentityLinks(params: ListParams = {}) {
@@ -216,18 +157,37 @@ export function exchangeSsoTicket(ticket: string) {
   return http.post<import('@/api/auth').LoginResult>('/api/v1/sso/oidc/exchange', { ticket }, { skipErrorToast: true })
 }
 
+export function browserFrontendBase() {
+  if (typeof window === 'undefined') {
+    return ''
+  }
+  return window.location.origin
+}
+
 export function oidcStartURL(providerId: string, redirect = '/', tenantId?: string) {
+  return externalStartURL('oidc', providerId, redirect, tenantId)
+}
+
+export function samlStartURL(providerId: string, redirect = '/', tenantId?: string) {
+  return externalStartURL('saml', providerId, redirect, tenantId)
+}
+
+function externalStartURL(kind: 'oidc' | 'saml', providerId: string, redirect = '/', tenantId?: string) {
   const base = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '')
-  const query = new URLSearchParams({ provider_id: providerId, redirect })
+  const query = new URLSearchParams({
+    provider_id: providerId,
+    redirect,
+    frontend_base: browserFrontendBase(),
+  })
   if (tenantId) {
     query.set('tenant_id', tenantId)
   }
-  return `${base}/api/v1/sso/oidc/start?${query.toString()}`
+  const path = kind === 'saml' ? '/api/v1/sso/saml/start' : '/api/v1/sso/oidc/start'
+  return `${base}${path}?${query.toString()}`
 }
 
 export function protocolLabel(value: string) {
   if (value === 'oidc') return 'OIDC'
-  if (value === 'oauth2') return 'OAuth 2.0'
   if (value === 'saml') return 'SAML 2.0'
   return value || '—'
 }

@@ -97,6 +97,24 @@ func (s *GormStore) FindUserByUsername(ctx context.Context, username string) (Us
 	return row.user(), nil
 }
 
+func (s *GormStore) FindUserByEmail(ctx context.Context, email string) (User, error) {
+	email = strings.TrimSpace(email)
+	if email == "" {
+		return User{}, ErrNotFound
+	}
+	var row userRow
+	err := s.db.WithContext(ctx).
+		Where("deleted = ? AND email <> '' AND LOWER(email) = LOWER(?)", false, email).
+		First(&row).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return User{}, ErrNotFound
+	}
+	if err != nil {
+		return User{}, err
+	}
+	return row.user(), nil
+}
+
 func (s *GormStore) ListUsers(ctx context.Context, keyword string, page, pageSize int) ([]User, int64, error) {
 	query := applyKeyword(s.db.WithContext(ctx).Model(&userRow{}).Where("deleted = ?", false), keyword, "username", "nickname")
 	var total int64
@@ -409,21 +427,22 @@ func (s *GormStore) ListAssignments(ctx context.Context, tenantID, userID string
 type userRow struct {
 	ID         string     `gorm:"type:uuid;primaryKey"`
 	Username   string     `gorm:"column:username"`
-	Password   string     `gorm:"column:password"`
-	Nickname   string     `gorm:"column:nickname"`
-	Remark     *string    `gorm:"column:remark"`
-	Email      string     `gorm:"column:email"`
-	Mobile     string     `gorm:"column:mobile"`
-	Sex        int        `gorm:"column:sex"`
-	Avatar     string     `gorm:"column:avatar"`
-	Status     int        `gorm:"column:status"`
-	LoginIP    string     `gorm:"column:login_ip"`
-	LoginDate  *time.Time `gorm:"column:login_date"`
-	Creator    string     `gorm:"column:creator"`
-	CreateTime time.Time  `gorm:"column:create_time"`
-	Updater    string     `gorm:"column:updater"`
-	UpdateTime time.Time  `gorm:"column:update_time"`
-	Deleted    bool       `gorm:"column:deleted"`
+	Password             string     `gorm:"column:password"`
+	Nickname             string     `gorm:"column:nickname"`
+	Remark               *string    `gorm:"column:remark"`
+	Email                string     `gorm:"column:email"`
+	Mobile               string     `gorm:"column:mobile"`
+	Sex                  int        `gorm:"column:sex"`
+	Avatar               string     `gorm:"column:avatar"`
+	Status               int        `gorm:"column:status"`
+	LocalPasswordEnabled bool       `gorm:"column:local_password_enabled"`
+	LoginIP              string     `gorm:"column:login_ip"`
+	LoginDate            *time.Time `gorm:"column:login_date"`
+	Creator              string     `gorm:"column:creator"`
+	CreateTime           time.Time  `gorm:"column:create_time"`
+	Updater              string     `gorm:"column:updater"`
+	UpdateTime           time.Time  `gorm:"column:update_time"`
+	Deleted              bool       `gorm:"column:deleted"`
 }
 
 func (userRow) TableName() string { return "sys_users" }
@@ -432,8 +451,8 @@ func userRowFrom(user User) userRow {
 	return userRow{
 		ID: user.ID, Username: user.Username, Password: user.PasswordHash, Nickname: user.Nickname,
 		Remark: nullable(user.Remark), Email: user.Email, Mobile: user.Mobile, Sex: user.Sex, Avatar: user.Avatar,
-		Status: user.Status, LoginIP: user.LoginIP, LoginDate: user.LoginDate, Creator: user.Creator,
-		Updater: user.Updater, CreateTime: user.CreateTime, UpdateTime: user.UpdateTime, Deleted: user.Deleted,
+		Status: user.Status, LocalPasswordEnabled: user.LocalPasswordEnabled, LoginIP: user.LoginIP, LoginDate: user.LoginDate,
+		Creator: user.Creator, Updater: user.Updater, CreateTime: user.CreateTime, UpdateTime: user.UpdateTime, Deleted: user.Deleted,
 	}
 }
 
@@ -441,8 +460,9 @@ func (row userRow) user() User {
 	return User{
 		ID: row.ID, Username: row.Username, PasswordHash: row.Password, Nickname: row.Nickname,
 		Remark: valueOf(row.Remark), Email: row.Email, Mobile: row.Mobile, Sex: row.Sex, Avatar: row.Avatar,
-		Status: row.Status, LoginIP: row.LoginIP, LoginDate: utcPtr(row.LoginDate), Creator: row.Creator,
-		Updater: row.Updater, CreateTime: row.CreateTime.UTC(), UpdateTime: row.UpdateTime.UTC(), Deleted: row.Deleted,
+		Status: row.Status, LocalPasswordEnabled: row.LocalPasswordEnabled, LoginIP: row.LoginIP,
+		LoginDate: utcPtr(row.LoginDate), Creator: row.Creator, Updater: row.Updater,
+		CreateTime: row.CreateTime.UTC(), UpdateTime: row.UpdateTime.UTC(), Deleted: row.Deleted,
 	}
 }
 

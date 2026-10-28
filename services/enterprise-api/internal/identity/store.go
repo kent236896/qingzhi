@@ -15,6 +15,7 @@ type Store interface {
 	UpdateUserLogin(ctx context.Context, userID, loginIP string, loginDate time.Time) error
 	FindUser(ctx context.Context, id string) (User, error)
 	FindUserByUsername(ctx context.Context, username string) (User, error)
+	FindUserByEmail(ctx context.Context, email string) (User, error)
 	ListUsers(ctx context.Context, keyword string, page, pageSize int) ([]User, int64, error)
 
 	InsertTenant(ctx context.Context, tenant Tenant) error

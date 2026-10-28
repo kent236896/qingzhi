@@ -13,14 +13,11 @@ type MemoryStore struct {
 	settings       Settings
 	providers      map[string]Provider
 	secrets        map[string]secretMem
-	clients        map[string]OAuthClient
-	sps            map[string]SamlSP
 	links          map[string]IdentityLink
 	events         []AuthEvent
 	authRequests   map[string]AuthRequest
 	tickets        map[string]LoginTicket
 	providerSecret map[string]string
-	clientSecret   map[string]string
 }
 
 type secretMem struct {
@@ -36,13 +33,10 @@ func NewMemoryStore() *MemoryStore {
 		settings:       Settings{LocalLoginEnabled: true, UpdatedAt: time.Now().UTC()},
 		providers:      map[string]Provider{},
 		secrets:        map[string]secretMem{},
-		clients:        map[string]OAuthClient{},
-		sps:            map[string]SamlSP{},
 		links:          map[string]IdentityLink{},
 		authRequests:   map[string]AuthRequest{},
 		tickets:        map[string]LoginTicket{},
 		providerSecret: map[string]string{},
-		clientSecret:   map[string]string{},
 	}
 }
 
@@ -75,31 +69,7 @@ func (s *MemoryStore) CountProviders(_ context.Context, protocol string) (int64,
 	return total, enabled, nil
 }
 
-func (s *MemoryStore) CountOAuthClients(context.Context) (int64, int64, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	var total, enabled int64
-	for _, c := range s.clients {
-		total++
-		if c.Status == StatusEnabled {
-			enabled++
-		}
-	}
-	return total, enabled, nil
-}
 
-func (s *MemoryStore) CountSamlSPs(context.Context) (int64, int64, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	var total, enabled int64
-	for _, sp := range s.sps {
-		total++
-		if sp.Status == StatusEnabled {
-			enabled++
-		}
-	}
-	return total, enabled, nil
-}
 
 func (s *MemoryStore) CountIdentityLinks(context.Context) (int64, error) {
 	s.mu.Lock()
@@ -140,15 +110,10 @@ func (s *MemoryStore) ListCertificateWarnings(_ context.Context, withinDays int)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	deadline := time.Now().UTC().AddDate(0, 0, withinDays)
-	var out []CertWarning
+	out := make([]CertWarning, 0)
 	for _, p := range s.providers {
 		if p.CertificateNotAfter != nil && !p.CertificateNotAfter.After(deadline) {
 			out = append(out, certWarning("provider", p.ID, p.Name, p.CertificateNotAfter))
-		}
-	}
-	for _, sp := range s.sps {
-		if sp.CertificateNotAfter != nil && !sp.CertificateNotAfter.After(deadline) {
-			out = append(out, certWarning("saml_sp", sp.ID, sp.Name, sp.CertificateNotAfter))
 		}
 	}
 	return out, nil
@@ -233,148 +198,6 @@ func (s *MemoryStore) SetProviderStatus(_ context.Context, id, status string) er
 	p.Status = status
 	p.UpdatedAt = time.Now().UTC()
 	s.providers[id] = p
-	return nil
-}
-
-func (s *MemoryStore) ListOAuthClients(_ context.Context, query ListQuery) ([]OAuthClient, int64, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	var all []OAuthClient
-	for _, c := range s.clients {
-		if query.Status != "" && c.Status != query.Status {
-			continue
-		}
-		if query.Keyword != "" && !strings.Contains(strings.ToLower(c.Name+c.ClientID), strings.ToLower(query.Keyword)) {
-			continue
-		}
-		all = append(all, c)
-	}
-	return pageSlice(all, query.Page, query.PageSize)
-}
-
-func (s *MemoryStore) GetOAuthClient(_ context.Context, id string) (OAuthClient, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	c, ok := s.clients[id]
-	if !ok {
-		return OAuthClient{}, notFound("OAuth 客户端不存在")
-	}
-	return c, nil
-}
-
-func (s *MemoryStore) CreateOAuthClient(_ context.Context, item OAuthClient, secretID *string) (OAuthClient, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	item.ID = newID()
-	now := time.Now().UTC()
-	item.CreatedAt = now
-	item.UpdatedAt = now
-	if secretID != nil {
-		item.ClientSecretSet = true
-		if sec, ok := s.secrets[*secretID]; ok {
-			item.ClientSecretHint = sec.hint
-		}
-		s.clientSecret[item.ID] = *secretID
-	}
-	s.clients[item.ID] = item
-	return item, nil
-}
-
-func (s *MemoryStore) UpdateOAuthClient(_ context.Context, item OAuthClient, secretID *string) (OAuthClient, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	existing, ok := s.clients[item.ID]
-	if !ok {
-		return OAuthClient{}, notFound("OAuth 客户端不存在")
-	}
-	item.CreatedAt = existing.CreatedAt
-	item.UpdatedAt = time.Now().UTC()
-	item.ClientSecretSet = existing.ClientSecretSet
-	item.ClientSecretHint = existing.ClientSecretHint
-	if secretID != nil {
-		item.ClientSecretSet = true
-		if sec, ok := s.secrets[*secretID]; ok {
-			item.ClientSecretHint = sec.hint
-		}
-		s.clientSecret[item.ID] = *secretID
-	}
-	s.clients[item.ID] = item
-	return item, nil
-}
-
-func (s *MemoryStore) SetOAuthClientStatus(_ context.Context, id, status string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	c, ok := s.clients[id]
-	if !ok {
-		return notFound("OAuth 客户端不存在")
-	}
-	c.Status = status
-	c.UpdatedAt = time.Now().UTC()
-	s.clients[id] = c
-	return nil
-}
-
-func (s *MemoryStore) ListSamlSPs(_ context.Context, query ListQuery) ([]SamlSP, int64, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	var all []SamlSP
-	for _, sp := range s.sps {
-		if query.Status != "" && sp.Status != query.Status {
-			continue
-		}
-		if query.Keyword != "" && !strings.Contains(strings.ToLower(sp.Name+sp.EntityID), strings.ToLower(query.Keyword)) {
-			continue
-		}
-		all = append(all, sp)
-	}
-	return pageSlice(all, query.Page, query.PageSize)
-}
-
-func (s *MemoryStore) GetSamlSP(_ context.Context, id string) (SamlSP, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	sp, ok := s.sps[id]
-	if !ok {
-		return SamlSP{}, notFound("SAML 服务提供方不存在")
-	}
-	return sp, nil
-}
-
-func (s *MemoryStore) CreateSamlSP(_ context.Context, item SamlSP) (SamlSP, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	item.ID = newID()
-	now := time.Now().UTC()
-	item.CreatedAt = now
-	item.UpdatedAt = now
-	s.sps[item.ID] = item
-	return item, nil
-}
-
-func (s *MemoryStore) UpdateSamlSP(_ context.Context, item SamlSP) (SamlSP, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	existing, ok := s.sps[item.ID]
-	if !ok {
-		return SamlSP{}, notFound("SAML 服务提供方不存在")
-	}
-	item.CreatedAt = existing.CreatedAt
-	item.UpdatedAt = time.Now().UTC()
-	s.sps[item.ID] = item
-	return item, nil
-}
-
-func (s *MemoryStore) SetSamlSPStatus(_ context.Context, id, status string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	sp, ok := s.sps[id]
-	if !ok {
-		return notFound("SAML 服务提供方不存在")
-	}
-	sp.Status = status
-	sp.UpdatedAt = time.Now().UTC()
-	s.sps[id] = sp
 	return nil
 }
 

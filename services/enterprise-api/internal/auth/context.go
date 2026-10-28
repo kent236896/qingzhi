@@ -13,6 +13,7 @@ type Principal struct {
 	Username    string
 	Nickname    string
 	TenantID    string
+	AuthMethod  string
 	Permissions map[string]struct{}
 	Access      identity.DataAccess
 }

@@ -2,20 +2,42 @@ package knowledge
 
 import "testing"
 
-func TestVisibleOrgIDsIncludesDescendants(t *testing.T) {
-	parent := map[string]string{"root": "", "child": "root", "leaf": "child", "other": ""}
-	got := VisibleOrgIDs([]string{"child"}, parent)
-	if _, ok := got["child"]; !ok {
-		t.Fatal("missing own department")
+func TestVisibleOrgIDsIncludesAncestorsAndDescendants(t *testing.T) {
+	// company
+	// ├── finance
+	// │   └── finance-team
+	// └── rd
+	parent := map[string]string{
+		"company": "", "finance": "company", "finance-team": "finance", "rd": "company",
 	}
-	if _, ok := got["leaf"]; !ok {
-		t.Fatal("missing descendant")
+
+	fromFinance := VisibleOrgIDs([]string{"finance"}, parent)
+	for _, id := range []string{"company", "finance", "finance-team"} {
+		if _, ok := fromFinance[id]; !ok {
+			t.Fatalf("finance chain missing %s", id)
+		}
 	}
-	if _, ok := got["root"]; ok {
-		t.Fatal("parent should stay hidden")
+	if _, ok := fromFinance["rd"]; ok {
+		t.Fatal("sibling rd must stay hidden for finance assignee")
 	}
-	if _, ok := got["other"]; ok {
-		t.Fatal("unrelated department should stay hidden")
+
+	fromTeam := VisibleOrgIDs([]string{"finance-team"}, parent)
+	if _, ok := fromTeam["finance"]; !ok {
+		t.Fatal("child assignee should see ancestor finance")
+	}
+	if _, ok := fromTeam["company"]; !ok {
+		t.Fatal("child assignee should see ancestor company")
+	}
+	if _, ok := fromTeam["rd"]; ok {
+		t.Fatal("sibling rd must stay hidden for finance-team assignee")
+	}
+
+	fromCompany := VisibleOrgIDs([]string{"company"}, parent)
+	if _, ok := fromCompany["finance"]; !ok {
+		t.Fatal("company assignee should see descendant finance")
+	}
+	if _, ok := fromCompany["rd"]; !ok {
+		t.Fatal("company assignee should see descendant rd")
 	}
 }
 

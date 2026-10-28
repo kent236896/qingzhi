@@ -7,6 +7,7 @@
 | 目录 | 职责 |
 | --- | --- |
 | `apps/admin-web` | Vue 3 管理后台。独立安装、启动、构建和测试。 |
+| `apps/user-workbench` | Vue 3 用户工作台。独立安装、启动、构建和测试；已接入登录、个人中心与 AI 对话（`/api/v1/chat` 代理 WeKnora）。 |
 | `services/enterprise-api` | Go API。独立启动和测试。 |
 | `deploy` | 本地 PostgreSQL、Redis 和 Nginx 骨架。 |
 | `docs` | 架构、接口、开发和测试约定。 |
@@ -22,7 +23,7 @@
 
 ## 后端组成
 
-`cmd/server` 读取配置并组装日志、PostgreSQL、Redis 和 HTTP 服务。依赖暂时不可达时进程仍然启动，`/health/live` 返回成功，`/health/ready` 返回 503。
+`cmd/server` 读取配置并组装日志、PostgreSQL、Redis 和 HTTP 服务。依赖暂时不可达时进程仍然启动，`/health/live` 返回成功，`/health/ready` 返回 503。数据库可用且 `BOOTSTRAP_ENABLED` 未关闭时，若尚无租户则创建默认租户、主体组织与超级管理员（凭据来自 `BOOTSTRAP_*`，缺省则随机生成并打印到标准输出）。
 
 日志是 JSON，写到标准输出。访问日志和应用日志用 `component` 区分。
 

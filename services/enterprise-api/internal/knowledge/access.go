@@ -33,15 +33,17 @@ type Shares struct {
 	RoleIDs []string
 }
 
-// VisibleOrgIDs returns the caller's departments and every department below them.
+// VisibleOrgIDs returns each assigned department plus its ancestors and descendants.
+// That makes an org-scoped knowledge base visible along the ownership chain
+// (上级 + 本级 + 下级), while sibling departments stay out.
 func VisibleOrgIDs(assigned []string, parentOf map[string]string) map[string]struct{} {
 	children := map[string][]string{}
 	for id, parent := range parentOf {
 		children[parent] = append(children[parent], id)
 	}
 	out := map[string]struct{}{}
-	var walk func(id string)
-	walk = func(id string) {
+	var walkDown func(id string)
+	walkDown = func(id string) {
 		if id == "" {
 			return
 		}
@@ -50,11 +52,18 @@ func VisibleOrgIDs(assigned []string, parentOf map[string]string) map[string]str
 		}
 		out[id] = struct{}{}
 		for _, child := range children[id] {
-			walk(child)
+			walkDown(child)
 		}
 	}
 	for _, id := range assigned {
-		walk(id)
+		if id == "" {
+			continue
+		}
+		// Ancestors only (do not pre-mark self, or walkDown would skip children).
+		for cur := parentOf[id]; cur != ""; cur = parentOf[cur] {
+			out[cur] = struct{}{}
+		}
+		walkDown(id)
 	}
 	return out
 }

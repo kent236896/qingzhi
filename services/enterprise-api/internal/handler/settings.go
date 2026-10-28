@@ -42,8 +42,9 @@ func (h Settings) update(c *gin.Context) {
 		return
 	}
 	var input struct {
-		BaseURL string `json:"base_url"`
-		APIKey  string `json:"api_key"`
+		BaseURL         string `json:"base_url"`
+		APIKey          string `json:"api_key"`
+		WeKnoraTenantID string `json:"weknora_tenant_id"`
 	}
 	if err := c.ShouldBindJSON(&input); err != nil {
 		response.InvalidParams(c, nil)
@@ -51,9 +52,10 @@ func (h Settings) update(c *gin.Context) {
 	}
 	principal, _ := auth.GetPrincipal(c)
 	view, err := h.Service.Update(c.Request.Context(), settings.Update{
-		BaseURL: input.BaseURL,
-		APIKey:  input.APIKey,
-		Updater: principal.Username,
+		BaseURL:         input.BaseURL,
+		APIKey:          input.APIKey,
+		WeKnoraTenantID: input.WeKnoraTenantID,
+		Updater:         principal.Username,
 	})
 	h.write(c, view, err)
 }

@@ -36,6 +36,7 @@ func (h Auth) RegisterProtected(group *gin.RouterGroup) {
 	group.GET("/auth/profile", h.profile)
 	group.PATCH("/auth/profile", h.updateProfile)
 	group.PUT("/auth/password", h.changePassword)
+	group.GET("/auth/password-policy", h.passwordPolicy)
 }
 
 func (h Auth) login(c *gin.Context) {
@@ -105,10 +106,13 @@ func (h Auth) me(c *gin.Context) {
 	}
 	nickname := principal.Nickname
 	avatar := ""
+	localPasswordEnabled := false
+	authMethod := authMethodOf(principal)
 	if h.Service != nil {
 		if user, err := h.Service.GetOwnProfile(c.Request.Context(), principal.UserID); err == nil {
 			nickname = user.Nickname
 			avatar = user.Avatar
+			localPasswordEnabled = user.LocalPasswordEnabled
 		}
 	}
 	response.OK(c, map[string]any{
@@ -119,9 +123,13 @@ func (h Auth) me(c *gin.Context) {
 			"nickname": nickname,
 			"avatar":   avatar,
 		},
-		"tenant_id":   principal.TenantID,
-		"permissions": permissions,
-		"data_scope":  principal.Access.Scope,
+		"tenant_id":              principal.TenantID,
+		"permissions":            permissions,
+		"data_scope":             principal.Access.Scope,
+		"auth_method":            authMethod,
+		"local_password_enabled": localPasswordEnabled,
+		"username_editable":      false,
+		"account_console_url":    "",
 	})
 }
 
@@ -135,7 +143,52 @@ func (h Auth) profile(c *gin.Context) {
 		h.writeAuth(c, nil, err)
 		return
 	}
-	response.OK(c, map[string]any{"version": version.Current, "user": item})
+	response.OK(c, map[string]any{
+		"version":                version.Current,
+		"user":                   item,
+		"auth_method":            authMethodOf(principal),
+		"local_password_enabled": item.LocalPasswordEnabled,
+		"username_editable":      false,
+		"account_console_url":    "",
+	})
+}
+
+func (h Auth) passwordPolicy(c *gin.Context) {
+	if _, ok := h.principal(c); !ok {
+		return
+	}
+	if h.Security == nil {
+		response.OK(c, map[string]any{
+			"password_min_length":      6,
+			"password_max_length":      32,
+			"password_require_letter":  false,
+			"password_require_number":  false,
+			"password_require_symbol":  false,
+		})
+		return
+	}
+	policy, err := h.Security.Policy(c.Request.Context())
+	if err != nil {
+		if h.Logger != nil {
+			h.Logger.Error("load password policy failed", slog.String("component", "app"), slog.String("error", err.Error()))
+		}
+		response.Fail(c, http.StatusInternalServerError, response.CodeInternal, "服务器内部错误", nil)
+		return
+	}
+	response.OK(c, map[string]any{
+		"password_min_length":     policy.PasswordMinLength,
+		"password_max_length":     policy.PasswordMaxLength,
+		"password_require_letter": policy.PasswordRequireLetter,
+		"password_require_number": policy.PasswordRequireNumber,
+		"password_require_symbol": policy.PasswordRequireSymbol,
+	})
+}
+
+func authMethodOf(principal auth.Principal) string {
+	if principal.AuthMethod == auth.AuthMethodSSO {
+		return auth.AuthMethodSSO
+	}
+	return auth.AuthMethodLocal
 }
 
 func (h Auth) updateProfile(c *gin.Context) {

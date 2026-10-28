@@ -12,6 +12,7 @@ import (
 type View struct {
 	BaseURL          string    `json:"base_url"`
 	APIKeyConfigured bool      `json:"api_key_configured"`
+	WeKnoraTenantID  string    `json:"weknora_tenant_id"`
 	Reachable        bool      `json:"reachable"`
 	Version          string    `json:"version,omitempty"`
 	UpdatedAt        time.Time `json:"updated_at"`
@@ -20,9 +21,10 @@ type View struct {
 
 // Update is a page save. An empty APIKey keeps the stored key.
 type Update struct {
-	BaseURL string
-	APIKey  string
-	Updater string
+	BaseURL         string
+	APIKey          string
+	WeKnoraTenantID string
+	Updater         string
 }
 
 // Hooks apply a saved connection to the running process and check it.
@@ -49,17 +51,39 @@ func (s *Service) SetHooks(hooks Hooks) {
 	}
 }
 
+const DefaultWeKnoraTenantID = "10000"
+
 // Ensure copies the environment values into an empty row once.
 // After a row has an address or a key, the stored values win.
-func (s *Service) Ensure(ctx context.Context, baseURL, apiKey string) (Record, error) {
+// tenantID is seeded only when the stored weknora_tenant_id is empty (default 10000).
+func (s *Service) Ensure(ctx context.Context, baseURL, apiKey, tenantID string) (Record, error) {
 	item, err := s.store.Get(ctx)
 	if err != nil {
 		return Record{}, err
 	}
 	baseURL = strings.TrimSpace(baseURL)
 	apiKey = strings.TrimSpace(apiKey)
+	tenantID = strings.TrimSpace(tenantID)
+	if tenantID == "" {
+		tenantID = DefaultWeKnoraTenantID
+	}
+	changed := false
 	if item.BaseURL == "" && item.APIKey == "" && baseURL != "" && apiKey != "" {
-		item = Record{BaseURL: strings.TrimRight(baseURL, "/"), APIKey: apiKey, UpdatedBy: "环境变量", UpdatedAt: s.now()}
+		item.BaseURL = strings.TrimRight(baseURL, "/")
+		item.APIKey = apiKey
+		item.UpdatedBy = "环境变量"
+		item.UpdatedAt = s.now()
+		changed = true
+	}
+	if strings.TrimSpace(item.WeKnoraTenantID) == "" {
+		item.WeKnoraTenantID = tenantID
+		if item.UpdatedBy == "" {
+			item.UpdatedBy = "环境变量"
+		}
+		item.UpdatedAt = s.now()
+		changed = true
+	}
+	if changed {
 		if err := s.store.Save(ctx, item); err != nil {
 			return Record{}, err
 		}
@@ -94,20 +118,52 @@ func (s *Service) Update(ctx context.Context, input Update) (View, error) {
 	if strings.ContainsAny(apiKey, "\r\n") || len(apiKey) > 512 {
 		return View{}, invalid("API Key 不合法")
 	}
-	item := Record{BaseURL: baseURL, APIKey: apiKey, UpdatedBy: strings.TrimSpace(input.Updater), UpdatedAt: s.now()}
+	tenantID := strings.TrimSpace(input.WeKnoraTenantID)
+	if tenantID == "" {
+		tenantID = strings.TrimSpace(current.WeKnoraTenantID)
+	}
+	if tenantID == "" {
+		tenantID = DefaultWeKnoraTenantID
+	}
+	if len(tenantID) > 64 {
+		return View{}, invalid("WeKnora 空间 ID 过长")
+	}
+	item := Record{
+		BaseURL: baseURL, APIKey: apiKey, WeKnoraTenantID: tenantID,
+		UpdatedBy: strings.TrimSpace(input.Updater), UpdatedAt: s.now(),
+	}
 	if err := s.store.Save(ctx, item); err != nil {
 		return View{}, err
 	}
 	return s.present(ctx, item), nil
 }
 
+// WeKnoraTenantID returns the configured space id for signed_token tenant_id claims.
+// Empty storage falls back to DefaultWeKnoraTenantID (10000).
+func (s *Service) WeKnoraTenantID(ctx context.Context) (string, error) {
+	item, err := s.store.Get(ctx)
+	if err != nil {
+		return "", err
+	}
+	id := strings.TrimSpace(item.WeKnoraTenantID)
+	if id == "" {
+		return DefaultWeKnoraTenantID, nil
+	}
+	return id, nil
+}
+
 func (s *Service) present(ctx context.Context, item Record) View {
 	if s.hooks.Apply != nil && item.BaseURL != "" && item.APIKey != "" {
 		s.hooks.Apply(item.BaseURL, item.APIKey)
 	}
+	tenantID := strings.TrimSpace(item.WeKnoraTenantID)
+	if tenantID == "" {
+		tenantID = DefaultWeKnoraTenantID
+	}
 	view := View{
 		BaseURL:          item.BaseURL,
 		APIKeyConfigured: item.APIKey != "",
+		WeKnoraTenantID:  tenantID,
 		UpdatedAt:        item.UpdatedAt,
 		Updater:          item.UpdatedBy,
 	}

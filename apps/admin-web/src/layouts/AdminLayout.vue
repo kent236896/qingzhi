@@ -257,7 +257,12 @@ watch(
           <header v-if="pageTitle" class="page-shell__head">
             <h2>{{ pageTitle }}</h2>
           </header>
-          <router-view />
+          <router-view v-slot="{ Component }">
+            <!-- Keyed wrapper isolates page unmount so a child crash cannot stick the previous view. -->
+            <div :key="route.fullPath" class="page-view">
+              <component :is="Component" />
+            </div>
+          </router-view>
         </div>
       </t-content>
     </t-layout>

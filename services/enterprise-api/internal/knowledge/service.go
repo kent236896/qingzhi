@@ -83,6 +83,62 @@ type CreateInput struct {
 	WikiEnabled  bool     `json:"wiki_enabled"`
 }
 
+// ChatKnowledgeBase is a sanitized list item for the workbench chat selector.
+type ChatKnowledgeBase struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	ScopeType   string `json:"scope_type"`
+}
+
+// ListChatKnowledgeBases returns knowledge bases the actor may use for RAG.
+// It reuses the same visibility rules as List but does not require knowledge:query.
+func (s *Service) ListChatKnowledgeBases(ctx context.Context, actor Actor, keyword string) ([]ChatKnowledgeBase, error) {
+	page, err := s.List(ctx, actor, "", keyword, 1, 100)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]ChatKnowledgeBase, 0, len(page.Items))
+	for _, item := range page.Items {
+		out = append(out, ChatKnowledgeBase{
+			ID: item.ID, Name: item.Name, Description: item.Description, ScopeType: item.ScopeType,
+		})
+	}
+	return out, nil
+}
+
+// ResolveRemoteKnowledgeBaseIDs maps platform KB ids to WeKnora remote ids after authz.
+// Any missing, invisible, or unbound id fails the whole request.
+func (s *Service) ResolveRemoteKnowledgeBaseIDs(ctx context.Context, actor Actor, platformIDs []string) ([]string, error) {
+	if len(platformIDs) == 0 {
+		return nil, invalid("请至少选择一个知识库")
+	}
+	seen := map[string]struct{}{}
+	remoteIDs := make([]string, 0, len(platformIDs))
+	for _, id := range platformIDs {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			return nil, invalid("知识库标识不合法")
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		item, _, err := s.visible(ctx, actor, id)
+		if err != nil {
+			return nil, err
+		}
+		if strings.TrimSpace(item.RemoteID) == "" {
+			return nil, invalid("知识库尚未同步到 WeKnora，无法用于对话")
+		}
+		remoteIDs = append(remoteIDs, item.RemoteID)
+	}
+	if len(remoteIDs) == 0 {
+		return nil, invalid("请至少选择一个知识库")
+	}
+	return remoteIDs, nil
+}
+
 func (s *Service) List(ctx context.Context, actor Actor, scopeType, keyword string, page, pageSize int) (Page[Base], error) {
 	if page < 1 {
 		page = 1

@@ -4,7 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { ApiError } from '@/utils/http'
 import { useAuthStore } from '@/stores/auth'
 import { useAppStore } from '@/stores/app'
-import { getLoginOptions, oidcStartURL, protocolLabel, type LoginOption } from '@/api/sso'
+import { getLoginOptions, oidcStartURL, protocolLabel, samlStartURL, type LoginOption } from '@/api/sso'
 
 const route = useRoute()
 const router = useRouter()
@@ -27,7 +27,7 @@ async function loadProviders() {
     providers.value = response.data.providers ?? []
     const auto = providers.value.find((item) => item.auto_login)
     if (auto && !route.query.sso_error && !route.query.local) {
-      window.location.assign(oidcStartURL(auto.id, typeof route.query.redirect === 'string' ? route.query.redirect : '/'))
+      startProvider(auto)
     }
   } catch {
     localLoginEnabled.value = true
@@ -64,11 +64,8 @@ async function submit() {
 function startProvider(item: LoginOption) {
   const redirect = typeof route.query.redirect === 'string' ? route.query.redirect : '/'
   const tenant = showTenant.value ? tenantId.value.trim() : undefined
-  if (item.protocol === 'oauth2') {
-    const base = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '')
-    const query = new URLSearchParams({ provider_id: item.id, redirect })
-    if (tenant) query.set('tenant_id', tenant)
-    window.location.assign(`${base}/api/v1/sso/oauth2/start?${query.toString()}`)
+  if (item.protocol === 'saml') {
+    window.location.assign(samlStartURL(item.id, redirect, tenant))
     return
   }
   window.location.assign(oidcStartURL(item.id, redirect, tenant))
