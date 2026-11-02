@@ -62,11 +62,15 @@ func TestCanViewUnionsScopesAndKeepsPersonalPrivate(t *testing.T) {
 	manager := actor
 	manager.CanManage = true
 	foreign := Base{ScopeType: ScopePost, ScopeID: "elsewhere", TenantIDs: []string{"t1"}}
-	if !CanView(foreign, Shares{}, manager, facts) {
-		t.Fatal("manager should see organization, post, and role knowledge bases in their tenants")
+	if CanView(foreign, Shares{}, manager, facts) {
+		t.Fatal("knowledge:manage must not bypass post/org/role visibility")
 	}
 	if CanView(personal, Shares{}, manager, facts) {
 		t.Fatal("manager should not see someone else's personal knowledge base")
+	}
+	siblingOrg := Base{ScopeType: ScopeOrg, ScopeID: "other-org", TenantIDs: []string{"t1"}}
+	if CanView(siblingOrg, Shares{}, manager, facts) {
+		t.Fatal("manager outside an org chain must not see that org knowledge base")
 	}
 	owner := Base{ScopeType: ScopePersonal, ScopeID: "user", TenantIDs: []string{"t9"}}
 	if !CanView(owner, Shares{}, actor, facts) {

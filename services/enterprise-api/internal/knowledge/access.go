@@ -109,9 +109,8 @@ func CanView(base Base, shares Shares, actor Actor, facts ScopeFacts) bool {
 	if !overlaps(base.TenantIDs, actor.TenantIDs) && !actor.CanQueryAll {
 		return false
 	}
-	if actor.CanManage {
-		return true
-	}
+	// knowledge:manage 只提升写权限，不绕过组织/岗位/角色可见范围。
+	// 否则工作台里带 manage 的账号会看到租户内全部企业知识库。
 	switch base.ScopeType {
 	case ScopeOrg:
 		if _, ok := facts.OrgIDs[base.ScopeID]; ok {

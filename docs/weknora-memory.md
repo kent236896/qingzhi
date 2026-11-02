@@ -48,36 +48,52 @@
 
 字段：`enabled`、`write_mode`、`extract_model_id`、`max_items`、`extract_delay_seconds`、`extract_min_interval_seconds`、`extract_instructions`、`interest_threshold`、`embedding_model_id`、`vector_recall`、`retrieval_conditioning`。
 
-## 4. 个人长期记忆（待集成）
+## 4. 个人长期记忆（已开放）
 
-公开文档要求个人 `/memory/*` 作用域由凭证决定，且 **API Key Principal 当前明确隔离的是 Session/MCP**，未保证 `signed_token` 对个人记忆接口实现跨用户隔离。
+前置：WeKnora 空间 `api-principal-config.mode=signed_token`，且与平台 `WEKNORA_EXTERNAL_USER_HMAC` 一致。可用系统配置页「启用 signed_token 主体」：用已保存的 WeKnora 管理员邮箱/密码登录换 JWT 后写入配置。
 
-因此：
+平台代理（登录即可；服务端注入 External User Token，**禁止**前端传 user_id）：
 
-- **未实现**「我的长期记忆」读写页。  
-- `GET /api/v1/weknora/memory/personal-status` 返回 `ready=false` 与原因说明。  
-- **禁止**用超级管理员 API Key 冒充任意用户读写个人记忆。  
+| 本平台 | WeKnora |
+| --- | --- |
+| `GET /api/v1/memory/status` | 门禁 + 只读空间摘要 |
+| `GET/PUT /api/v1/memory/settings` | `GET/PUT /api/v1/memory/settings` |
+| `GET/POST /api/v1/memory/items` | 同路径 |
+| `PUT/DELETE /api/v1/memory/items/{id}` | 同路径 |
+| `POST .../confirm`、`.../reject` | 同路径 |
 
-### 4.1 真实环境验证记录（2026-10-28）
+工作台：`/memory` 开关 + 列表 CRUD。门禁 `PersonalMemoryIsolation().Ready=true`（2026-10-30 复测 PASS）。
 
-对 `WEKNORA_BASE_URL` 指向的 WeKnora **0.8.2 / standard**、空间 `10000` 实测：
+### 4.1 真实环境验证记录
+
+#### 2026-10-28 / 2026-10-29
+
+在未正确配置 `api-principal-config=signed_token` 时，`/memory/*` 回退 API Key 主体，跨用户共享。详见历史记录；当时保持 `ready=false`。
+
+#### 2026-10-30（开放依据）
+
+脚本：`scripts/memory-isolation-retest.go`（Step0 写入 `signed_token` + HMAC；同一 API Key + 用户 A/B External Token）。
 
 | 检查项 | 结果 |
 | --- | --- |
-| 空间配置 `GET/PUT tenants/kv/memory-config` | **通过**：可读写，`enabled` 切换后能还原 |
-| 缺 `X-External-User-Token` 访问 `/memory/settings` | **200**（未拒绝，回退到 API Key 租户主体） |
-| 用户 A / B 不同 signed JWT 改 `user_enabled` | **未隔离**：改 A 后读 B 看到相同值 |
-| 用户 A / B 写入不同 memory items | **未隔离**：双方列表都能看到对方条目；返回 `subject_id` 均为 `api_tenant:10000`（不是 JWT `sub`） |
-| `GET /tenants/10000/api-principal-config` | API Key **403**（需 Owner JWT，本次未能读取 mode） |
+| 缺 Token `GET /api/v1/memory/settings` | **401** |
+| A PUT `user_enabled=false`、B PUT `true` 后各自 GET | **互不影响** |
+| A POST item 后 B list | **不可见**；`subject_id=api_external_user:<空间>:<sub>` |
+| B DELETE A 的 item | **404** |
+| **RESULT** | **PASS isolation_ok** |
 
-结论：当前部署下，**不能**用「共享空间 API Key + 外部用户 Token」安全实现个人记忆；个人功能保持关闭，直至 WeKnora 侧 Principal 对 `/memory/*` 按外部用户生效并可复测通过。
+结论：可安全开放个人记忆代理；必须注入 `X-External-User-Token`，禁止回退管理员主体。
 
 ## 5. WeKnora 侧必配
 
 1. API Key 具备 `manage_tenant_settings` 或 `full-access`（空间配置）。  
-2. 若使用终端用户主体：空间 `api-principal-config` 设为 `signed_token`，配置与本平台相同的 `hmac_secret`。  
-3. 本平台在 **系统配置** 填写 WeKnora 地址、API Key、空间 ID（默认 `10000`）；`.env` 仅作首次种子。  
-4. 终端用户令牌仍用环境变量：`WEKNORA_EXTERNAL_USER_HMAC`、`WEKNORA_EXTERNAL_USER_TOKEN_TTL`（密钥不进前端）。
+2. 空间 `api-principal-config` 设为 `signed_token`，`hmac_secret` 与本平台 `WEKNORA_EXTERNAL_USER_HMAC` 相同。  
+3. 本平台在 **系统配置** 填写 WeKnora 地址、API Key、空间 ID、管理员邮箱/密码；`.env` 仅作首次种子。管理员密码不回显。  
+4. **API Key ≠ 管理员 JWT**：`WEKNORA_API_KEY` / 配置页「API Key」是工作区密钥；`WEKNORA_ADMIN_TOKEN` 须由 `POST /api/v1/auth/login`（邮箱+密码）换取，不要把 JWT 填进 API Key。开启 `signed_token` 后，仅 API Key 访问 `/system/info`、空间配置等会 401（`invalid external user token`），连通探测与管理接口需管理员 JWT。  
+   - 终端用户路径（会话 / 问答 / 个人记忆）：**只**使用 API Key + `X-External-User-Token`，**禁止**再挂管理员 Bearer，否则会话会记到管理员名下，用户再问会 404。  
+   - 管理路径（system info、models、memory-config、principal-config）：使用管理员 JWT（`ExchangeAdmin`）。  
+5. 终端用户令牌仍用环境变量：`WEKNORA_EXTERNAL_USER_HMAC`、`WEKNORA_EXTERNAL_USER_TOKEN_TTL`（密钥不进前端）。  
+6. 可选：`POST /api/v1/system/settings/ensure-principal`（或配置页按钮）用管理员账号登录并写入 signed_token。
 
 ## 6. 智能体 `memory_enabled`
 

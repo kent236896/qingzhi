@@ -2,7 +2,7 @@
 
 面向企业普通员工的知识与智能助手前端。与 `apps/admin-web` 管理后台相互独立，共用 `services/enterprise-api` 后端。
 
-当前已完成：布局与路由、统一登录（本地 + Keycloak/SSO）、个人中心（资料与本地密码管理）、AI 对话（知识库选择、会话、SSE 流式问答、引用片段）。智能体中心与个人记忆页仍为占位（记忆因隔离未通过暂不开放）。
+当前已完成：布局与路由、统一登录（本地 + Keycloak/SSO）、个人中心（资料与本地密码管理）、知识库管理（个人库增删改分享与文档上传；企业/共享库只读查看与检索）、AI 对话（知识库选择、会话、SSE 流式问答、引用片段）。智能体中心与个人记忆页仍为占位（记忆因隔离未通过暂不开放）。
 
 ## 技术栈
 
@@ -27,14 +27,14 @@
 ```text
 user-workbench/
 ├── src/
-│   ├── api/           # auth / sso / chat / HTTP 客户端
+│   ├── api/           # auth / sso / chat / knowledge / HTTP 客户端
 │   ├── components/    # 布局与个人中心组件
 │   ├── layouts/
 │   ├── router/
 │   ├── stores/        # auth / chat 等
 │   ├── types/
-│   ├── utils/         # http / markdown / redirect
-│   └── views/         # login / chat / profile / 占位
+│   ├── utils/         # http / markdown / redirect / knowledge
+│   └── views/         # login / chat / knowledge / profile / 占位
 ├── .env.example
 ├── package.json
 └── README.md
@@ -49,11 +49,20 @@ user-workbench/
 - 本地密码修改：`PUT /api/v1/auth/password`，只改本平台哈希，**不会**改 Keycloak 密码。仅 `local_password_enabled=true` 的账号可改。
 - 用户名：当前后端不允许用户自行修改。
 
+## 知识库
+
+- 路由：`/knowledge` 列表，`/knowledge/:id` 详情。
+- 复用平台 `/api/v1/knowledge-bases*`（需 `knowledge:query`）。
+- **我的知识库**：仅本人个人库；可新建 / 修改 / 删除 / 分享给用户 / 上传与删除文档。
+- **企业知识库**：组织 / 岗位 / 角色库，以及别人分享给我的个人库；仅查看、Wiki 检索与「对话检索」，无改删分享上传。
+- 后端 `CanWrite` 已保证组织库不可被普通用户写；前端隐藏操作作为补充。
+
 ## AI 对话
 
 - 登录后默认进入 `/chat`（`/` 重定向到 `/chat`）。
 - 平台代理：`/api/v1/chat/*`（见 [docs/api-conventions.md](../../docs/api-conventions.md)）。浏览器不持有 WeKnora API Key / HMAC。
 - 知识库选择器只展示平台本地 id；服务端映射远程 ID 并做可见性校验。
+- 从知识库详情可带 `?kb=` 进入对话并预选该库。
 - 流式问答：`POST .../ask` 经 `fetch` SSE；停止生成需使用流事件中的 `message_id`。
 - 引用面板展示检索片段与元数据；无安全原文代理时不生成永久公开链接。
 - 会话标题搜索为前端本地过滤（上游列表无 keyword）。
@@ -101,12 +110,14 @@ pnpm build
 | `/` | 重定向到 `/chat` |
 | `/chat` | AI 对话（需登录） |
 | `/home` | 模块导览 |
-| `/agents` `/memory` | 业务占位（需登录） |
+| `/agents` | 业务占位（需登录） |
+| `/memory` | 我的长期记忆（门禁状态页；隔离未通过时不开放 CRUD） |
 | `/profile` | 个人中心 |
 
 ## 尚未实现
 
-- 智能体中心、个人记忆（隔离 PENDING）
+- 智能体中心
+- 个人记忆 CRUD（隔离复测未通过，仅状态门禁页）
 - 平台用户名自助修改
 - Keycloak 账号控制台 URL 配置与联邦登出
 - 本地凭证与 SSO 身份的绑定/初始化流程

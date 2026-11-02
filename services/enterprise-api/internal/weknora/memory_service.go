@@ -106,3 +106,28 @@ func (s *MemoryService) resolveWeKnoraTenantID(ctx context.Context) (string, err
 func (s *MemoryService) PersonalStatus() PersonalMemoryIsolationStatus {
 	return PersonalMemoryIsolation()
 }
+
+// WorkbenchMemoryStatus is the login-scoped status for the user workbench.
+type WorkbenchMemoryStatus struct {
+	PersonalMemoryIsolationStatus
+	WorkspaceEnabled *bool  `json:"workspace_enabled"`
+	WriteMode        string `json:"write_mode,omitempty"`
+	MaxItems         int    `json:"max_items,omitempty"`
+}
+
+// WorkbenchStatus returns isolation gate + optional workspace config summary.
+func (s *MemoryService) WorkbenchStatus(ctx context.Context) WorkbenchMemoryStatus {
+	out := WorkbenchMemoryStatus{PersonalMemoryIsolationStatus: PersonalMemoryIsolation()}
+	if s == nil || s.remote == nil {
+		return out
+	}
+	cfg, err := s.remote.GetMemoryConfig(ctx)
+	if err != nil {
+		return out
+	}
+	enabled := cfg.Enabled
+	out.WorkspaceEnabled = &enabled
+	out.WriteMode = cfg.WriteMode
+	out.MaxItems = cfg.MaxItems
+	return out
+}

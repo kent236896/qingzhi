@@ -49,13 +49,22 @@ type Client interface {
 // HTTPClient calls WeKnora through the official Go SDK.
 // Creating a knowledge base, reading Wiki, and model endpoints whose SDK structs drop fields
 // still use the SDK raw request. Both paths share the base URL, API key, timeout, and request id.
+//
+// Auth layers (do not confuse):
+//   - X-API-Key: workspace API key (WEKNORA_API_KEY / 系统配置)
+//   - Authorization Bearer: tenant-admin JWT from email/password login (not the API key)
+//   - X-External-User-Token: short-lived signed_token for end users (chat / personal memory)
 type HTTPClient struct {
-	mu      sync.RWMutex
-	sdk     *sdk.Client
-	baseURL string
-	apiKey  string
-	timeout time.Duration
-	http    *http.Client
+	mu             sync.RWMutex
+	sdk            *sdk.Client
+	baseURL        string
+	apiKey         string
+	adminEmail     string
+	adminPassword  string
+	adminToken     string
+	adminTokenExp  time.Time
+	timeout        time.Duration
+	http           *http.Client
 }
 
 func NewHTTPClient(baseURL, apiKey string, timeout time.Duration) *HTTPClient {
@@ -80,24 +89,32 @@ func (c *HTTPClient) Configure(baseURL, apiKey string) {
 	}
 	base := strings.TrimRight(strings.TrimSpace(baseURL), "/")
 	key := strings.TrimSpace(apiKey)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.baseURL = base
+	c.apiKey = key
+	c.rebuildLocked()
+}
+
+// rebuildLocked refreshes the SDK client. Caller must hold c.mu.
+//
+// Never attach the tenant-admin JWT here. Mixing Authorization Bearer (admin)
+// with X-External-User-Token on session/chat calls makes WeKnora own the session
+// as the admin user; later asks with only API Key + External Token then 404.
+// Admin JWT is applied only via ExchangeAdmin / exchangeWithBearer.
+func (c *HTTPClient) rebuildLocked() {
 	timeout := c.timeout
 	if timeout <= 0 {
 		timeout = 30 * time.Second
 	}
 	// Inject X-External-User-Token from context on every WeKnora hop.
-	// Do not use WithTimeout for the SDK stream client path used by chat —
-	// ordinary JSON calls still use a timeout via a separate http.Client below.
 	transport := wrapExternalTokenTransport(http.DefaultTransport)
-	next := sdk.NewClient(base,
-		sdk.WithAPIKey(key),
-		sdk.WithTransport(transport),
-	)
-	c.mu.Lock()
-	c.sdk = next
-	c.baseURL = base
-	c.apiKey = key
+	opts := []sdk.ClientOption{sdk.WithTransport(transport)}
+	if c.apiKey != "" {
+		opts = append(opts, sdk.WithAPIKey(c.apiKey))
+	}
+	c.sdk = sdk.NewClient(c.baseURL, opts...)
 	c.http = &http.Client{Timeout: timeout, Transport: transport}
-	c.mu.Unlock()
 }
 
 func (c *HTTPClient) session() (*sdk.Client, string, string) {
@@ -108,6 +125,7 @@ func (c *HTTPClient) session() (*sdk.Client, string, string) {
 
 // Exchange performs a JSON request and returns the status and body, including non-2xx responses.
 // Transport failures are returned as err. The body is limited to 8 MiB.
+// Uses API Key (+ optional X-External-User-Token from ctx). Does not send admin JWT.
 func (c *HTTPClient) Exchange(ctx context.Context, method, path string, body any) (int, []byte, error) {
 	client, _, _ := c.session()
 	resp, err := client.Raw(ctx, method, path, body)
@@ -120,6 +138,17 @@ func (c *HTTPClient) Exchange(ctx context.Context, method, path string, body any
 		return resp.StatusCode, nil, err
 	}
 	return resp.StatusCode, payload, nil
+}
+
+// ExchangeAdmin is for tenant-admin WeKnora APIs under signed_token
+// (system info, models, memory-config, etc.). It logs in with stored admin
+// email/password when needed and sends Authorization Bearer — never use this
+// for end-user chat/session/personal-memory calls.
+func (c *HTTPClient) ExchangeAdmin(ctx context.Context, method, path string, body any) (int, []byte, error) {
+	if err := c.EnsureAdminAuth(ctx); err != nil {
+		return 0, nil, err
+	}
+	return c.exchangeWithBearer(ctx, method, path, c.AdminBearer(), body)
 }
 
 // ExchangeMultipart forwards a prepared multipart body. Content-Type must include the boundary.
@@ -237,6 +266,22 @@ type WikiStats struct {
 }
 
 func (c *HTTPClient) GetSystemInfo(ctx context.Context) (SystemInfo, error) {
+	// Prefer admin JWT: under signed_token, API Key alone returns 401.
+	if status, raw, err := c.ExchangeAdmin(ctx, http.MethodGet, "/api/v1/system/info", nil); err == nil && status == http.StatusOK {
+		var envelope struct {
+			Data SystemInfo `json:"data"`
+			SystemInfo
+		}
+		if json.Unmarshal(raw, &envelope) == nil {
+			out := envelope.Data
+			if out.Version == "" {
+				out = envelope.SystemInfo
+			}
+			if out.Version != "" || out.Edition != "" {
+				return out, nil
+			}
+		}
+	}
 	client, _, _ := c.session()
 	info, err := client.GetSystemInfo(ctx)
 	if err != nil {

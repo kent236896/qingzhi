@@ -247,7 +247,9 @@ func (r *HTTPRemote) data(ctx context.Context, method, path string, body any) (j
 	if r == nil || r.client == nil {
 		return nil, notReady("请先在系统配置中填写 WeKnora 地址和 API Key")
 	}
-	status, payload, err := r.client.Exchange(ctx, method, path, body)
+	// Models APIs need tenant-admin JWT once signed_token is on; never mix that
+	// bearer into end-user chat/session Exchange calls.
+	status, payload, err := r.client.ExchangeAdmin(ctx, method, path, body)
 	if err != nil {
 		return nil, err
 	}

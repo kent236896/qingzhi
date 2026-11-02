@@ -2,12 +2,15 @@
   color-scheme: light;
   --wb-bg: #f5f7fa;
   --wb-surface: #ffffff;
+  --wb-sidebar-bg: var(--td-bg-color-secondarycontainer, #f3f3f3);
   --wb-border: #e7e7e7;
   --wb-text: #1a1a1a;
   --wb-text-secondary: #666666;
   --wb-primary: #0052d9;
+  --wb-primary-light: var(--td-brand-color-light, #ecf2fe);
+  --wb-hover: var(--td-bg-color-container-hover, #eeeeee);
   --wb-radius: 8px;
-  --wb-sidebar-width: 220px;
+  --wb-sidebar-width: 240px;
   --wb-header-height: 56px;
   font-family:
     'PingFang SC',
@@ -37,6 +40,22 @@ body,
 #app {
   margin: 0;
   min-height: 100%;
+}
+
+html {
+  font-size: 16px;
+}
+
+html[data-font-size='small'] {
+  font-size: 14px;
+}
+
+html[data-font-size='normal'] {
+  font-size: 16px;
+}
+
+html[data-font-size='large'] {
+  font-size: 18px;
 }
 
 a {

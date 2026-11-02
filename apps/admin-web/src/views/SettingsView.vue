@@ -2,7 +2,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import PageStatus from '@/components/PageStatus.vue'
 import ModelsView from '@/views/ModelsView.vue'
-import { getSystemSettings, updateSystemSettings, type SystemSettings } from '@/api/settings'
+import { ensureWeKnoraPrincipal, getSystemSettings, updateSystemSettings, type SystemSettings } from '@/api/settings'
 import { listBindings, listModels, saveBinding, type AiModel, type BindingRole, type ModelType } from '@/api/models'
 import { ApiError } from '@/utils/http'
 import { feedback } from '@/utils/feedback'
@@ -15,10 +15,13 @@ const connectionReady = computed(() => Boolean(settings.value?.base_url && setti
 const pageStatus = ref<'loading' | 'error' | 'ready'>('loading')
 const errorMessage = ref('')
 const saving = ref(false)
+const ensuringPrincipal = ref(false)
 const settings = ref<SystemSettings | null>(null)
 const baseURL = ref('')
 const apiKey = ref('')
 const weknoraTenantID = ref('')
+const adminEmail = ref('')
+const adminPassword = ref('')
 const models = ref<AiModel[]>([])
 const modelHint = ref('')
 const bindingDraft = ref<Record<string, string>>({})
@@ -53,6 +56,8 @@ function apply(item: SystemSettings) {
   baseURL.value = item.base_url
   apiKey.value = ''
   weknoraTenantID.value = item.weknora_tenant_id || ''
+  adminEmail.value = item.admin_email || ''
+  adminPassword.value = ''
 }
 
 async function loadModels() {
@@ -90,14 +95,34 @@ async function saveConnection() {
       base_url: baseURL.value.trim(),
       api_key: apiKey.value,
       weknora_tenant_id: weknoraTenantID.value.trim(),
+      admin_email: adminEmail.value.trim(),
+      admin_password: adminPassword.value,
     })
     apply(response.data)
-    feedback.success(response.data.reachable ? '连接已保存' : '已保存，但暂时无法连通 WeKnora')
+    if (response.data.reachable) {
+      feedback.success('连接已保存')
+    } else if (!response.data.admin_password_configured && !adminPassword.value) {
+      feedback.warning('已保存。开启 signed_token 后需填写管理员邮箱/密码才能连通（不要把 JWT 填进 API Key）')
+    } else {
+      feedback.warning('已保存，但暂时无法连通 WeKnora（请核对 API Key 与管理员账号）')
+    }
     await loadModels()
   } catch {
     // The HTTP client already shows the server message.
   } finally {
     saving.value = false
+  }
+}
+
+async function syncPrincipal() {
+  ensuringPrincipal.value = true
+  try {
+    const response = await ensureWeKnoraPrincipal()
+    feedback.success(`已启用 signed_token（mode=${response.data.mode || 'signed_token'}）`)
+  } catch {
+    // toast already shown
+  } finally {
+    ensuringPrincipal.value = false
   }
 }
 
@@ -140,7 +165,7 @@ onMounted(() => {
           <t-form-item label="服务地址" help="填写主机和端口，不要带 /api/v1">
             <t-input v-model="baseURL" placeholder="http://127.0.0.1:8083" :disabled="!canUpdate" />
           </t-form-item>
-          <t-form-item label="API Key">
+          <t-form-item label="API Key" help="工作区密钥（sk-…）。不是登录 JWT，也不是 WEKNORA_ADMIN_TOKEN。">
             <t-input
               v-model="apiKey"
               type="password"
@@ -152,12 +177,40 @@ onMounted(() => {
           <t-form-item label="WeKnora 空间 ID" help="与 API Key 所属空间一致。默认 10000；保存后以本页为准，不必依赖 .env">
             <t-input v-model="weknoraTenantID" placeholder="10000" :disabled="!canUpdate" />
           </t-form-item>
+          <t-form-item
+            label="WeKnora 管理员邮箱"
+            help="用邮箱密码调用 /api/v1/auth/login 换管理员 JWT。开启 signed_token 后，连通探测与空间配置依赖此账号，不能用 API Key 代替。"
+          >
+            <t-input v-model="adminEmail" placeholder="例如 kent236896@gmail.com" :disabled="!canUpdate" autocomplete="off" />
+          </t-form-item>
+          <t-form-item label="WeKnora 管理员密码" help="仅保存在服务端；接口不回显。与 API Key 无关。">
+            <t-input
+              v-model="adminPassword"
+              type="password"
+              autocomplete="new-password"
+              :disabled="!canUpdate"
+              :placeholder="settings?.admin_password_configured ? '已配置，留空保持不变' : '请填写管理员密码'"
+            />
+          </t-form-item>
           <p class="hint">
             {{ settings?.api_key_configured ? '密钥已配置' : '尚未配置密钥' }}
+            · {{ settings?.admin_password_configured ? '管理员密码已配置' : '管理员密码未配置' }}
             · {{ settings?.reachable ? `已连通 ${settings.version || ''}` : '当前未连通' }}
           </p>
           <p class="hint">最近更新：{{ settings?.updater || '系统' }} · {{ formatTime(settings?.updated_at || '') }}</p>
-          <t-button v-if="canUpdate" theme="primary" variant="base" :loading="saving" @click="saveConnection">保存连接</t-button>
+          <div class="settings-actions">
+            <t-button v-if="canUpdate" theme="primary" variant="base" :loading="saving" @click="saveConnection">保存连接</t-button>
+            <t-button
+              v-if="canUpdate"
+              theme="default"
+              variant="outline"
+              :loading="ensuringPrincipal"
+              :disabled="!settings?.admin_password_configured && !adminPassword"
+              @click="syncPrincipal"
+            >
+              启用 signed_token 主体
+            </t-button>
+          </div>
         </t-form>
       </PageStatus>
     </t-card>
@@ -215,6 +268,12 @@ onMounted(() => {
 <style scoped>
 .settings-form {
   max-width: 560px;
+}
+
+.settings-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .binding {

@@ -153,6 +153,10 @@ func New(deps Dependencies) *Server {
 		Logger:  deps.Logger,
 		Service: deps.Chat,
 	}.Register(protected)
+	handler.Memory{
+		Logger:  deps.Logger,
+		Service: deps.Memory,
+	}.Register(protected)
 	ssoHandler.Register(protected, enforce)
 
 	engine.NoRoute(func(c *gin.Context) {

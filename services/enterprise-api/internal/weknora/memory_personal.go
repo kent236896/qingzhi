@@ -1,34 +1,25 @@
 package weknora
 
-import (
-	"context"
-	"fmt"
-)
-
 // PersonalMemoryIsolationStatus documents whether personal memory APIs are
 // safe to expose through the shared workspace API key + signed_token.
 type PersonalMemoryIsolationStatus struct {
-	Verified bool   `json:"verified"`
-	Ready    bool   `json:"ready"`
-	Reason   string `json:"reason"`
+	Verified   bool   `json:"verified"`
+	Ready      bool   `json:"ready"`
+	Reason     string `json:"reason"`
+	RetestedAt string `json:"retested_at,omitempty"`
 }
 
-// PersonalMemoryIsolation reports the current integration posture.
-// Official docs state API Key Principal currently isolates Session/MCP, not
-// general RBAC or an explicit guarantee for /memory/* subject isolation under
-// signed_token. Until a live deployment proves isolation, personal APIs stay pending.
+// PersonalMemoryIsolation reports the current integration posture after live retests.
+// 2026-10-30: after setting api-principal-config.mode=signed_token (via admin JWT),
+// scripts/memory-isolation-retest.go returned RESULT=PASS isolation_ok.
 func PersonalMemoryIsolation() PersonalMemoryIsolationStatus {
 	return PersonalMemoryIsolationStatus{
-		Verified: false,
-		Ready:    false,
-		Reason:   "未验证：公开文档未保证 signed_token 对 /memory/* 按终端用户隔离；禁止用超级管理员 API Key 冒充个人记忆授权",
+		Verified:   true,
+		Ready:      true,
+		RetestedAt: "2026-10-30T10:05+08:00",
+		Reason: "实机复测通过（2026-10-30）：api-principal-config=signed_token 后，" +
+			"缺 Token 访问 /memory/settings 返回 401；A/B 个人开关互不影响；" +
+			"条目 subject_id=api_external_user:<空间>:<sub>；跨用户列表不可见且删除返回 404。" +
+			"开放个人记忆代理时必须注入 X-External-User-Token，禁止回退管理员主体。",
 	}
-}
-
-// GetMemorySettingsForCaller is intentionally unavailable until isolation is verified.
-func (c *HTTPClient) GetMemorySettingsForCaller(ctx context.Context, externalUserToken string) error {
-	_ = ctx
-	_ = externalUserToken
-	status := PersonalMemoryIsolation()
-	return fmt.Errorf("%s", status.Reason)
 }

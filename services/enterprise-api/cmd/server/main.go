@@ -119,6 +119,10 @@ func run() int {
 			cfg.WeKnora.BaseURL = conn.BaseURL
 			cfg.WeKnora.APIKey = conn.APIKey
 			remoteClient.Configure(conn.BaseURL, conn.APIKey)
+			remoteClient.SetAdminCredentials(conn.AdminEmail, conn.AdminPassword)
+			if authErr := remoteClient.EnsureAdminAuth(context.Background()); authErr != nil {
+				log.Warn("weknora admin login skipped", slog.String("component", "app"), slog.String("error", authErr.Error()))
+			}
 		}
 		var remote weknora.Client = remoteClient
 		if cfg.WeKnora.Enabled() {
@@ -136,17 +140,34 @@ func run() int {
 		modelService = modelcfg.NewService(modelcfg.NewGormStore(db.GORM()), modelcfg.NewHTTPRemote(remoteClient), cfg.WeKnora, log)
 		knowledgeService.SetModelDirectory(modelService)
 		settingsService.SetHooks(settings.Hooks{
-			Apply: func(baseURL, apiKey string) {
+			Apply: func(baseURL, apiKey, adminEmail, adminPassword string) {
 				remoteClient.Configure(baseURL, apiKey)
+				remoteClient.SetAdminCredentials(adminEmail, adminPassword)
 				modelService.SetConnection(baseURL, apiKey)
 				knowledgeService.SetConnection(baseURL, apiKey)
 			},
 			Probe: func(ctx context.Context) (string, error) {
+				// signed_token 模式下仅 API Key 会 401；需管理员 JWT（邮箱密码登录换取）。
+				if err := remoteClient.EnsureAdminAuth(ctx); err != nil {
+					info, probeErr := remoteClient.GetSystemInfo(ctx)
+					if probeErr != nil {
+						return "", err
+					}
+					return info.Version, nil
+				}
 				info, err := remoteClient.GetSystemInfo(ctx)
 				if err != nil {
 					return "", err
 				}
 				return info.Version, nil
+			},
+			EnsurePrincipal: func(ctx context.Context, baseURL, apiKey, tenantID, adminEmail, adminPassword string) (string, error) {
+				remoteClient.Configure(baseURL, apiKey)
+				remoteClient.SetAdminCredentials(adminEmail, adminPassword)
+				if err := remoteClient.EnsureAdminAuth(ctx); err != nil {
+					return "", err
+				}
+				return remoteClient.EnsureSignedTokenPrincipal(ctx, tenantID, remoteClient.AdminBearer(), cfg.WeKnora.ExternalUserHMAC)
 			},
 		})
 		var externalIssuer *weknora.ExternalUserTokenIssuer
@@ -159,7 +180,7 @@ func run() int {
 			}
 		}
 		memoryService = weknora.NewMemoryService(remoteClient, settingsService, externalIssuer, cfg.WeKnora.TenantID)
-		chatService = chat.NewService(remoteClient, knowledgeService, memoryService, identityService)
+		chatService = chat.NewService(remoteClient, knowledgeService, memoryService, identityService, chat.NewGormSessionOwnerStore(db.GORM()), log)
 		dictService = dict.NewService(dict.NewGormStore(db.GORM()))
 		securityService = security.NewService(security.NewGormStore(db.GORM()))
 		ssoVault, vaultErr := sso.NewVault(cfg.SSO.SecretsKey, cfg.Auth.JWTSecret)

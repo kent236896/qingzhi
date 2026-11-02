@@ -8,29 +8,34 @@ import (
 	"time"
 )
 
-// View is the connection shown to administrators. It never contains the API key.
+// View is the connection shown to administrators. It never contains secrets.
 type View struct {
-	BaseURL          string    `json:"base_url"`
-	APIKeyConfigured bool      `json:"api_key_configured"`
-	WeKnoraTenantID  string    `json:"weknora_tenant_id"`
-	Reachable        bool      `json:"reachable"`
-	Version          string    `json:"version,omitempty"`
-	UpdatedAt        time.Time `json:"updated_at"`
-	Updater          string    `json:"updater"`
+	BaseURL               string    `json:"base_url"`
+	APIKeyConfigured      bool      `json:"api_key_configured"`
+	WeKnoraTenantID       string    `json:"weknora_tenant_id"`
+	AdminEmail            string    `json:"admin_email"`
+	AdminPasswordConfigured bool    `json:"admin_password_configured"`
+	Reachable             bool      `json:"reachable"`
+	Version               string    `json:"version,omitempty"`
+	UpdatedAt             time.Time `json:"updated_at"`
+	Updater               string    `json:"updater"`
 }
 
-// Update is a page save. An empty APIKey keeps the stored key.
+// Update is a page save. Empty secret fields keep stored values.
 type Update struct {
 	BaseURL         string
 	APIKey          string
 	WeKnoraTenantID string
+	AdminEmail      string
+	AdminPassword   string
 	Updater         string
 }
 
 // Hooks apply a saved connection to the running process and check it.
 type Hooks struct {
-	Apply func(baseURL, apiKey string)
-	Probe func(ctx context.Context) (string, error)
+	Apply           func(baseURL, apiKey, adminEmail, adminPassword string)
+	Probe           func(ctx context.Context) (string, error)
+	EnsurePrincipal func(ctx context.Context, baseURL, apiKey, tenantID, adminEmail, adminPassword string) (string, error)
 }
 
 // Service stores the WeKnora address and API key.
@@ -128,8 +133,23 @@ func (s *Service) Update(ctx context.Context, input Update) (View, error) {
 	if len(tenantID) > 64 {
 		return View{}, invalid("WeKnora 空间 ID 过长")
 	}
+	adminEmail := strings.TrimSpace(input.AdminEmail)
+	if adminEmail == "" {
+		adminEmail = strings.TrimSpace(current.AdminEmail)
+	}
+	if len(adminEmail) > 255 {
+		return View{}, invalid("WeKnora 管理员邮箱过长")
+	}
+	adminPassword := strings.TrimSpace(input.AdminPassword)
+	if adminPassword == "" {
+		adminPassword = current.AdminPassword
+	}
+	if strings.ContainsAny(adminPassword, "\r\n") || len(adminPassword) > 512 {
+		return View{}, invalid("WeKnora 管理员密码不合法")
+	}
 	item := Record{
 		BaseURL: baseURL, APIKey: apiKey, WeKnoraTenantID: tenantID,
+		AdminEmail: adminEmail, AdminPassword: adminPassword,
 		UpdatedBy: strings.TrimSpace(input.Updater), UpdatedAt: s.now(),
 	}
 	if err := s.store.Save(ctx, item); err != nil {
@@ -152,20 +172,51 @@ func (s *Service) WeKnoraTenantID(ctx context.Context) (string, error) {
 	return id, nil
 }
 
+// EnsureSignedTokenPrincipal logs into WeKnora with stored admin credentials and sets
+// api-principal-config.mode=signed_token (HMAC comes from the EnsurePrincipal hook).
+func (s *Service) EnsureSignedTokenPrincipal(ctx context.Context) (string, error) {
+	if s.hooks.EnsurePrincipal == nil {
+		return "", invalid("未配置 WeKnora 主体同步能力")
+	}
+	item, err := s.store.Get(ctx)
+	if err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(item.BaseURL) == "" || strings.TrimSpace(item.APIKey) == "" {
+		return "", invalid("请先保存 WeKnora 地址和 API Key")
+	}
+	email := strings.TrimSpace(item.AdminEmail)
+	password := strings.TrimSpace(item.AdminPassword)
+	if email == "" || password == "" {
+		return "", invalid("请先填写并保存 WeKnora 管理员邮箱与密码")
+	}
+	tenantID := strings.TrimSpace(item.WeKnoraTenantID)
+	if tenantID == "" {
+		tenantID = DefaultWeKnoraTenantID
+	}
+	mode, err := s.hooks.EnsurePrincipal(ctx, item.BaseURL, item.APIKey, tenantID, email, password)
+	if err != nil {
+		return "", err
+	}
+	return mode, nil
+}
+
 func (s *Service) present(ctx context.Context, item Record) View {
 	if s.hooks.Apply != nil && item.BaseURL != "" && item.APIKey != "" {
-		s.hooks.Apply(item.BaseURL, item.APIKey)
+		s.hooks.Apply(item.BaseURL, item.APIKey, item.AdminEmail, item.AdminPassword)
 	}
 	tenantID := strings.TrimSpace(item.WeKnoraTenantID)
 	if tenantID == "" {
 		tenantID = DefaultWeKnoraTenantID
 	}
 	view := View{
-		BaseURL:          item.BaseURL,
-		APIKeyConfigured: item.APIKey != "",
-		WeKnoraTenantID:  tenantID,
-		UpdatedAt:        item.UpdatedAt,
-		Updater:          item.UpdatedBy,
+		BaseURL:                 item.BaseURL,
+		APIKeyConfigured:        item.APIKey != "",
+		WeKnoraTenantID:         tenantID,
+		AdminEmail:              strings.TrimSpace(item.AdminEmail),
+		AdminPasswordConfigured: item.AdminPassword != "",
+		UpdatedAt:               item.UpdatedAt,
+		Updater:                 item.UpdatedBy,
 	}
 	if !view.APIKeyConfigured || item.BaseURL == "" || s.hooks.Probe == nil {
 		return view

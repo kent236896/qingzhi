@@ -1,13 +1,26 @@
 <script setup lang="ts">
 import { useRouter } from 'vue-router'
+import { useSettingsStore } from '@/stores/settings'
+import type { SettingsSectionId } from '@/settings/registry'
 
 const router = useRouter()
+const settings = useSettingsStore()
 
-const modules = [
+const modules: Array<{
+  title: string
+  description: string
+  path?: string
+  settings?: SettingsSectionId
+}> = [
   {
     path: '/chat',
     title: 'AI 对话',
     description: '基于授权知识库的流式问答、会话历史与引用来源。',
+  },
+  {
+    path: '/knowledge',
+    title: '知识库',
+    description: '管理个人知识库（新建 / 修改 / 删除 / 分享），查看企业知识库并检索。',
   },
   {
     path: '/agents',
@@ -16,18 +29,22 @@ const modules = [
   },
   {
     path: '/memory',
-    title: '我的记忆',
-    description: '管理个人长期记忆。当前因隔离验证未通过暂不开放。',
+    title: '我的长期记忆',
+    description: '查看个人记忆能力状态。跨用户隔离复测未通过前不开放读写。',
   },
   {
-    path: '/profile',
-    title: '个人中心',
+    settings: 'profile',
+    title: '个人设置',
     description: '查看与修改个人资料、了解登录方式、管理本地密码。',
   },
 ]
 
-function openModule(path: string) {
-  void router.push(path)
+function openModule(item: (typeof modules)[number]) {
+  if (item.settings) {
+    void settings.openSettings(item.settings)
+    return
+  }
+  if (item.path) void router.push(item.path)
 }
 </script>
 
@@ -36,19 +53,23 @@ function openModule(path: string) {
     <section class="home__intro">
       <h2 class="home__title">用户工作台</h2>
       <p class="home__lead">
-        面向企业员工的知识与智能助手入口。已接入统一登录、个人中心与 AI 对话；智能体与个人记忆将在后续阶段实现。
+        面向企业员工的知识与智能助手入口。已接入统一登录、个人中心、知识库管理与 AI 对话；智能体与个人记忆将在后续阶段实现。
       </p>
       <div class="home__status">
         <span class="home__badge">工程状态</span>
-        <span>登录已接入 · 个人中心可用 · AI / 记忆业务未接入</span>
+        <span>登录 · 个人中心 · 知识库 · AI 对话可用</span>
       </div>
     </section>
 
     <section class="home__modules" aria-label="功能入口">
-      <article v-for="item in modules" :key="item.path" class="home__card">
+      <article
+        v-for="item in modules"
+        :key="item.settings || item.path"
+        class="home__card"
+      >
         <h3>{{ item.title }}</h3>
         <p>{{ item.description }}</p>
-        <button type="button" class="home__link" @click="openModule(item.path)">进入页面</button>
+        <button type="button" class="home__link" @click="openModule(item)">进入页面</button>
       </article>
     </section>
   </div>

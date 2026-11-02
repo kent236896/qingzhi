@@ -1,97 +1,87 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
-import { AddIcon, DeleteIcon, EditIcon, SendIcon, StopCircleIcon } from 'tdesign-icons-vue-next'
-import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next'
-import PageStatus from '@/components/common/PageStatus.vue'
+import { useRoute } from 'vue-router'
+import { CloseIcon, RefreshIcon, SendIcon, StopCircleIcon } from 'tdesign-icons-vue-next'
+import { MessagePlugin } from 'tdesign-vue-next'
 import { useChatStore } from '@/stores/chat'
 import type { ChatReference } from '@/types/chat'
+import { buildSuggestionPool, pickSuggestions } from '@/utils/chatUi'
 import { renderSafeMarkdown } from '@/utils/markdown'
 
+const route = useRoute()
 const chat = useChatStore()
 const draft = ref('')
 const messagePane = ref<HTMLElement | null>(null)
+const inputEl = ref<HTMLTextAreaElement | null>(null)
 const activeReferences = ref<ChatReference[]>([])
 const showReferences = ref(false)
+const kbPopupVisible = ref(false)
+const suggestionSeed = ref(Date.now())
 
-const knowledgeOptions = computed(() =>
-  chat.knowledgeBases.map((item) => ({ label: item.name, value: item.id })),
-)
+const productName = '知助手'
 
 const emptyKnowledge = computed(() => !chat.bootstrapping && chat.knowledgeBases.length === 0)
+
+const isWelcome = computed(
+  () => !chat.loadingMessages && chat.messages.length === 0 && !chat.streaming,
+)
+
+const selectedKnowledgeBases = computed(() =>
+  chat.knowledgeBases.filter((item) => chat.selectedKnowledgeBaseIds.includes(item.id)),
+)
+
+const suggestionPool = computed(() => {
+  const selected = selectedKnowledgeBases.value
+  const source = selected.length > 0 ? selected : chat.knowledgeBases
+  return buildSuggestionPool(source)
+})
+
+const suggestions = computed(() => pickSuggestions(suggestionPool.value, suggestionSeed.value, 4))
+
+const canSend = computed(
+  () => Boolean(draft.value.trim()) && !chat.streaming && !emptyKnowledge.value,
+)
 
 async function refresh() {
   try {
     await chat.bootstrap()
   } catch {
-    /* store already keeps errorMessage */
+    /* store keeps errorMessage */
   }
 }
 
-async function onNewSession() {
-  try {
-    await chat.createSession()
-    draft.value = ''
-    activeReferences.value = []
-    showReferences.value = false
-  } catch (error) {
-    void MessagePlugin.error(error instanceof Error ? error.message : '创建会话失败')
-  }
+function refreshSuggestions() {
+  suggestionSeed.value = Date.now()
 }
 
-async function onOpenSession(id: string) {
-  try {
-    await chat.openSession(id)
-    activeReferences.value = []
-    showReferences.value = false
-    await scrollToBottom()
-  } catch {
-    /* surfaced via errorMessage */
-  }
+function toggleKnowledge(id: string) {
+  const set = new Set(chat.selectedKnowledgeBaseIds)
+  if (set.has(id)) set.delete(id)
+  else set.add(id)
+  chat.selectedKnowledgeBaseIds = [...set]
 }
 
-async function onRename(id: string, current: string) {
-  const next = window.prompt('请输入新的会话标题', current || '新对话')
-  if (next === null) return
-  const title = next.trim()
-  if (!title) {
-    void MessagePlugin.warning('标题不能为空')
-    return
-  }
-  try {
-    await chat.renameSession(id, title)
-    void MessagePlugin.success('已重命名')
-  } catch (error) {
-    void MessagePlugin.error(error instanceof Error ? error.message : '重命名失败')
-  }
-}
-
-function onDelete(id: string) {
-  const dialog = DialogPlugin.confirm({
-    header: '删除会话',
-    body: '删除后无法恢复，确定继续吗？',
-    onConfirm: async () => {
-      try {
-        await chat.removeSession(id)
-        void MessagePlugin.success('会话已删除')
-      } catch (error) {
-        void MessagePlugin.error(error instanceof Error ? error.message : '删除失败')
-      } finally {
-        dialog.destroy()
-      }
-    },
-  })
+function removeKnowledge(id: string) {
+  chat.selectedKnowledgeBaseIds = chat.selectedKnowledgeBaseIds.filter((item) => item !== id)
 }
 
 async function onSend() {
   const text = draft.value
-  if (!text.trim() || chat.streaming) return
+  if (!canSend.value) return
   draft.value = ''
+  showReferences.value = false
   await chat.sendQuestion(text)
   await scrollToBottom()
 }
 
 async function onStop() {
   await chat.stop()
+}
+
+async function askSuggestion(text: string) {
+  if (emptyKnowledge.value || chat.streaming) return
+  draft.value = text
+  await onSend()
 }
 
 function openReferences(refs: ChatReference[]) {
@@ -115,6 +105,24 @@ async function scrollToBottom() {
   }
 }
 
+function onComposerKeydown(event: KeyboardEvent) {
+  if (event.key === 'Enter' && !event.shiftKey) {
+    event.preventDefault()
+    void onSend()
+  }
+}
+
+function autosizeInput() {
+  const el = inputEl.value
+  if (!el) return
+  el.style.height = 'auto'
+  el.style.height = `${Math.min(el.scrollHeight, 144)}px`
+}
+
+watch(draft, () => {
+  void nextTick(() => autosizeInput())
+})
+
 watch(
   () => chat.messages.length,
   () => {
@@ -129,376 +137,454 @@ watch(
   },
 )
 
-onMounted(() => {
-  void refresh()
+onMounted(async () => {
+  await refresh()
+  const kb = typeof route.query.kb === 'string' ? route.query.kb : ''
+  if (kb && chat.knowledgeBases.some((item) => item.id === kb)) {
+    chat.selectedKnowledgeBaseIds = [kb]
+  }
 })
+
+watch(
+  () => route.query.kb,
+  (kb) => {
+    if (typeof kb !== 'string' || !kb) return
+    if (chat.knowledgeBases.some((item) => item.id === kb)) {
+      chat.selectedKnowledgeBaseIds = [kb]
+    }
+  },
+)
 </script>
 
 <template>
-  <div class="chat-page">
-    <aside class="chat-sidebar">
-      <div class="chat-sidebar__toolbar">
-        <t-button theme="primary" block :disabled="chat.streaming" @click="onNewSession">
-          <template #icon><AddIcon /></template>
-          新建会话
-        </t-button>
-        <t-input v-model="chat.sessionFilter" clearable placeholder="搜索会话标题" />
-      </div>
-      <div class="chat-sidebar__list">
-        <PageStatus
-          v-if="chat.loadingSessions && chat.sessions.length === 0"
-          title="正在加载会话"
-          kind="loading"
-        />
-        <PageStatus
-          v-else-if="chat.filteredSessions.length === 0"
-          title="暂无会话"
-          description="点击「新建会话」开始提问。"
-          kind="empty"
-        />
-        <button
-          v-for="item in chat.filteredSessions"
-          :key="item.id"
-          type="button"
-          class="session-item"
-          :class="{ 'session-item--active': item.id === chat.activeSessionId }"
-          @click="onOpenSession(item.id)"
-        >
-          <div class="session-item__title">{{ item.title || '未命名会话' }}</div>
-          <div class="session-item__actions" @click.stop>
-            <t-button
-              size="small"
-              variant="text"
-              shape="square"
-              :title="'重命名'"
-              @click="onRename(item.id, item.title)"
-            >
-              <EditIcon />
-            </t-button>
-            <t-button
-              size="small"
-              variant="text"
-              shape="square"
-              theme="danger"
-              :title="'删除'"
-              @click="onDelete(item.id)"
-            >
-              <DeleteIcon />
-            </t-button>
-          </div>
-        </button>
-      </div>
-    </aside>
+  <div class="chat">
+    <section class="chat__stage">
+      <div ref="messagePane" class="chat__scroll">
+        <div v-if="isWelcome" class="welcome">
+          <h1 class="welcome__title">Hi，我是 {{ productName }}，让你的知识触手可及</h1>
 
-    <section class="chat-main">
-      <header class="chat-main__header">
-        <div class="chat-main__heading">
-          <h2>{{ chat.activeSession?.title || 'AI 对话' }}</h2>
-          <p>选择授权知识库后提问；回答与引用来自 WeKnora 知识检索。</p>
+          <template v-if="!emptyKnowledge && suggestions.length > 0">
+            <div class="welcome__prompt-row">
+              <span>你可以这样问我</span>
+              <button type="button" class="welcome__refresh" title="换一批" @click="refreshSuggestions">
+                <RefreshIcon />
+              </button>
+            </div>
+            <div class="welcome__chips">
+              <button
+                v-for="(item, index) in suggestions"
+                :key="`${suggestionSeed}-${index}`"
+                type="button"
+                class="welcome__chip"
+                @click="askSuggestion(item)"
+              >
+                {{ item }}
+              </button>
+            </div>
+          </template>
         </div>
-        <div class="chat-main__kb">
-          <span class="chat-main__kb-label">检索知识库</span>
-          <t-select
-            v-model="chat.selectedKnowledgeBaseIds"
-            multiple
-            clearable
-            filterable
-            placeholder="选择知识库"
-            :options="knowledgeOptions"
-            :disabled="chat.streaming || emptyKnowledge"
-            style="min-width: 280px"
-          />
-        </div>
-      </header>
 
-      <PageStatus
-        v-if="emptyKnowledge"
-        title="没有可用知识库"
-        description="当前账号没有可检索的知识库。请联系管理员授权后重试，不会使用模拟数据。"
-        kind="empty"
-      >
-        <t-button theme="primary" variant="outline" @click="refresh">重新加载</t-button>
-      </PageStatus>
-
-      <template v-else>
-        <div ref="messagePane" class="chat-messages">
-          <PageStatus
-            v-if="chat.loadingMessages"
-            title="正在加载消息"
-            kind="loading"
-          />
-          <PageStatus
-            v-else-if="!chat.activeSessionId"
-            title="开始一段对话"
-            description="新建会话或从左侧选择历史会话。"
-            kind="info"
-          />
-          <PageStatus
-            v-else-if="chat.messages.length === 0"
-            title="还没有消息"
-            description="在下方输入问题，系统将在所选知识库中检索并回答。"
-            kind="empty"
-          />
+        <div v-else class="messages">
+          <p v-if="chat.loadingMessages" class="chat__soft">正在加载消息…</p>
           <article
             v-for="item in chat.messages"
             :key="item.id"
-            class="bubble"
-            :class="item.role === 'user' ? 'bubble--user' : 'bubble--assistant'"
+            class="msg"
+            :class="item.role === 'user' ? 'msg--user' : 'msg--assistant'"
           >
-            <div class="bubble__meta">
-              <span>{{ item.role === 'user' ? '我' : '助手' }}</span>
-              <div class="bubble__tools">
-                <t-button
-                  v-if="item.role === 'assistant' && item.content"
-                  size="small"
-                  variant="text"
-                  @click="copyText(item.content)"
-                >
-                  复制
-                </t-button>
-                <t-button
-                  v-if="item.role === 'assistant' && item.knowledge_references?.length"
-                  size="small"
-                  variant="text"
-                  @click="openReferences(item.knowledge_references)"
-                >
-                  查看来源（{{ item.knowledge_references.length }}）
-                </t-button>
-              </div>
+            <div v-if="item.role === 'assistant'" class="msg__toolbar">
+              <button
+                v-if="item.content"
+                type="button"
+                class="msg__tool"
+                @click="copyText(item.content)"
+              >
+                复制
+              </button>
+              <button
+                v-if="item.knowledge_references?.length"
+                type="button"
+                class="msg__tool"
+                @click="openReferences(item.knowledge_references)"
+              >
+                查看来源（{{ item.knowledge_references.length }}）
+              </button>
             </div>
             <div
-              v-if="item.role === 'assistant'"
-              class="bubble__content markdown-body"
-              v-html="renderSafeMarkdown(item.content || (item.is_completed ? '' : '…'))"
+              v-if="item.role === 'assistant' && !item.content && !item.is_completed"
+              class="msg__waiting"
+              aria-live="polite"
+              aria-label="正在生成回答"
+            >
+              <span class="msg__waiting-dots" aria-hidden="true">
+                <i /><i /><i />
+              </span>
+              <span class="msg__waiting-text">正在检索并生成回答…</span>
+            </div>
+            <div
+              v-else-if="item.role === 'assistant'"
+              class="msg__body markdown-body"
+              v-html="renderSafeMarkdown(item.content)"
             />
-            <div v-else class="bubble__content">{{ item.content }}</div>
+            <div v-else class="msg__bubble">{{ item.content }}</div>
           </article>
         </div>
+      </div>
 
-        <p v-if="chat.errorMessage" class="chat-error">{{ chat.errorMessage }}</p>
+      <div class="chat__bottom">
+        <div v-if="emptyKnowledge" class="chat__kb-tip">
+          <span>
+            当前账号没有可检索的知识库，请联系管理员授权后重试，不会使用模拟数据。
+          </span>
+          <button type="button" class="chat__kb-reload" @click="refresh">重新加载</button>
+        </div>
+        <p v-else-if="chat.errorMessage" class="chat__error">{{ chat.errorMessage }}</p>
 
-        <footer class="chat-composer">
-          <t-textarea
-            v-model="draft"
-            :autosize="{ minRows: 2, maxRows: 6 }"
-            placeholder="输入问题，Enter 发送（Shift+Enter 换行）"
-            :disabled="chat.streaming || emptyKnowledge"
-            @keydown.enter.exact.prevent="onSend"
-          />
-          <div class="chat-composer__actions">
-            <t-button
-              v-if="chat.streaming"
-              theme="default"
-              variant="outline"
-              @click="onStop"
-            >
-              <template #icon><StopCircleIcon /></template>
-              停止生成
-            </t-button>
-            <t-button
-              theme="primary"
-              :loading="chat.streaming"
-              :disabled="!draft.trim() || emptyKnowledge"
-              @click="onSend"
-            >
-              <template #icon><SendIcon /></template>
-              发送
-            </t-button>
+        <div class="composer" :class="{ 'composer--disabled': emptyKnowledge }">
+          <div v-if="selectedKnowledgeBases.length" class="composer__chips">
+            <span v-for="kb in selectedKnowledgeBases" :key="kb.id" class="composer__chip">
+              @{{ kb.name }}
+              <button
+                type="button"
+                class="composer__chip-remove"
+                :disabled="chat.streaming || emptyKnowledge"
+                @click="removeKnowledge(kb.id)"
+              >
+                <CloseIcon />
+              </button>
+            </span>
           </div>
-        </footer>
-      </template>
+
+          <textarea
+            ref="inputEl"
+            v-model="draft"
+            class="composer__input"
+            rows="2"
+            placeholder="输入问题或描述任务..."
+            :disabled="chat.streaming || emptyKnowledge"
+            @keydown="onComposerKeydown"
+            @input="autosizeInput"
+          />
+
+          <div class="composer__toolbar">
+            <div class="composer__tools">
+              <span class="composer__mode">快速问答</span>
+
+              <t-popup
+                v-model:visible="kbPopupVisible"
+                trigger="click"
+                placement="top-left"
+                :disabled="emptyKnowledge || chat.streaming"
+              >
+                <button
+                  type="button"
+                  class="composer__at"
+                  :disabled="emptyKnowledge || chat.streaming"
+                  title="选择授权知识库"
+                >
+                  @
+                </button>
+                <template #content>
+                  <div class="kb-popup">
+                    <p class="kb-popup__title">授权知识库</p>
+                    <label
+                      v-for="kb in chat.knowledgeBases"
+                      :key="kb.id"
+                      class="kb-popup__item"
+                    >
+                      <input
+                        type="checkbox"
+                        :checked="chat.selectedKnowledgeBaseIds.includes(kb.id)"
+                        @change="toggleKnowledge(kb.id)"
+                      />
+                      <span>{{ kb.name }}</span>
+                    </label>
+                    <p v-if="chat.knowledgeBases.length === 0" class="kb-popup__empty">暂无知识库</p>
+                  </div>
+                </template>
+              </t-popup>
+            </div>
+
+            <div class="composer__actions">
+              <button
+                v-if="chat.streaming"
+                type="button"
+                class="composer__stop"
+                title="停止生成"
+                @click="onStop"
+              >
+                <StopCircleIcon />
+              </button>
+              <button
+                type="button"
+                class="composer__send"
+                :disabled="!canSend"
+                title="发送"
+                @click="onSend"
+              >
+                <SendIcon />
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
     </section>
 
-    <aside v-if="showReferences" class="chat-refs">
-      <div class="chat-refs__header">
+    <aside v-if="showReferences" class="refs">
+      <div class="refs__header">
         <h3>引用来源</h3>
-        <t-button size="small" variant="text" @click="showReferences = false">关闭</t-button>
+        <button type="button" class="refs__close" @click="showReferences = false">
+          <CloseIcon />
+        </button>
       </div>
-      <p class="chat-refs__hint">
+      <p class="refs__hint">
         本阶段展示检索片段与元数据。未提供安全原文代理时，不会生成永久公开链接。
       </p>
-      <article v-for="(refItem, index) in activeReferences" :key="refItem.id || index" class="ref-card">
+      <article v-for="(refItem, index) in activeReferences" :key="refItem.id || index" class="refs__card">
         <h4>{{ refItem.knowledge_title || refItem.knowledge_filename || '未命名文档' }}</h4>
-        <p class="ref-card__meta">
+        <p class="refs__meta">
           相关度 {{ typeof refItem.score === 'number' ? refItem.score.toFixed(4) : '—' }}
           <span v-if="refItem.knowledge_id"> · ID {{ refItem.knowledge_id }}</span>
         </p>
-        <p class="ref-card__content">{{ refItem.content || '无片段内容' }}</p>
+        <p class="refs__content">{{ refItem.content || '无片段内容' }}</p>
       </article>
     </aside>
   </div>
 </template>
 
 <style scoped>
-.chat-page {
-  display: flex;
-  gap: 16px;
-  min-height: calc(100vh - var(--wb-header-height) - 52px);
-  max-height: calc(100vh - var(--wb-header-height) - 52px);
-}
-
-.chat-sidebar {
-  width: 280px;
-  flex-shrink: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  background: var(--td-bg-color-container);
-  border: 1px solid var(--td-component-stroke);
-  border-radius: var(--td-radius-large);
-  padding: 12px;
-  overflow: hidden;
-}
-
-.chat-sidebar__toolbar {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.chat-sidebar__list {
+.chat {
   flex: 1;
-  overflow: auto;
+  min-height: 0;
   display: flex;
-  flex-direction: column;
-  gap: 6px;
+  background: var(--wb-surface);
 }
 
-.session-item {
+.chat__stage {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
   display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+.chat__scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 24px 24px 8px;
+}
+
+.welcome {
+  max-width: 800px;
+  margin: 12vh auto 0;
+  display: flex;
+  flex-direction: column;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  width: 100%;
+  text-align: center;
+  padding: 0 12px 24px;
+}
+
+.welcome__title {
+  margin: 0;
+  font-size: 30px;
+  font-weight: 700;
+  line-height: 1.35;
+  color: var(--wb-text);
+  letter-spacing: 0.01em;
+}
+
+.welcome__prompt-row {
+  margin-top: 24px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--wb-text-secondary);
+}
+
+.welcome__refresh {
   border: 0;
   background: transparent;
-  border-radius: var(--td-radius-medium);
-  padding: 10px 8px;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   cursor: pointer;
-  text-align: left;
-  color: var(--td-text-color-primary);
+  color: var(--wb-text-secondary);
 }
 
-.session-item:hover {
-  background: var(--td-bg-color-container-hover);
+.welcome__refresh:hover {
+  background: var(--wb-hover);
+  color: var(--wb-primary);
 }
 
-.session-item--active {
-  background: var(--td-brand-color-light);
-  color: var(--td-brand-color);
-}
-
-.session-item__title {
-  flex: 1;
-  min-width: 0;
-  font-size: 13px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.session-item__actions {
+.welcome__chips {
+  margin-top: 16px;
   display: flex;
-  gap: 0;
-  opacity: 0.75;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+  max-width: 100%;
 }
 
-.chat-main {
-  flex: 1;
-  min-width: 0;
+.welcome__chip {
+  border: 1px solid var(--wb-border);
+  background: var(--wb-surface);
+  color: var(--wb-text);
+  border-radius: 10px;
+  padding: 8px 14px;
+  font-size: 14px;
+  line-height: 1.4;
+  cursor: pointer;
+  max-width: 100%;
+  text-align: left;
+}
+
+.welcome__chip:hover {
+  border-color: var(--wb-primary);
+  color: var(--wb-primary);
+}
+
+.messages {
+  max-width: 800px;
+  margin: 0 auto;
   display: flex;
   flex-direction: column;
-  background: var(--td-bg-color-container);
-  border: 1px solid var(--td-component-stroke);
-  border-radius: var(--td-radius-large);
-  overflow: hidden;
+  gap: 20px;
+  padding-bottom: 16px;
 }
 
-.chat-main__header {
-  display: flex;
-  justify-content: space-between;
-  gap: 16px;
-  align-items: flex-start;
-  padding: 16px 20px;
-  border-bottom: 1px solid var(--td-component-stroke);
+.chat__soft {
+  margin: 24px 0;
+  text-align: center;
+  color: var(--wb-text-secondary);
+  font-size: 13px;
 }
 
-.chat-main__heading h2 {
-  margin: 0 0 4px;
-  font-size: 18px;
-}
-
-.chat-main__heading p {
-  margin: 0;
-  color: var(--td-text-color-secondary);
-  font-size: 12px;
-}
-
-.chat-main__kb {
+.msg {
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+
+.msg--user {
   align-items: flex-end;
 }
 
-.chat-main__kb-label {
-  font-size: 12px;
-  color: var(--td-text-color-secondary);
+.msg--assistant {
+  align-items: flex-start;
 }
 
-.chat-messages {
-  flex: 1;
-  overflow: auto;
-  padding: 16px 20px;
+.msg__toolbar {
   display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-
-.bubble {
-  max-width: min(720px, 100%);
-  padding: 12px 14px;
-  border-radius: var(--td-radius-medium);
-  background: var(--td-bg-color-secondarycontainer);
-}
-
-.bubble--user {
-  align-self: flex-end;
-  background: var(--td-brand-color-light);
-}
-
-.bubble--assistant {
-  align-self: flex-start;
-}
-
-.bubble__meta {
-  display: flex;
-  justify-content: space-between;
   gap: 8px;
-  margin-bottom: 6px;
+}
+
+.msg__tool {
+  border: 0;
+  background: transparent;
+  color: var(--wb-text-secondary);
   font-size: 12px;
-  color: var(--td-text-color-secondary);
+  cursor: pointer;
+  padding: 0;
 }
 
-.bubble__tools {
-  display: flex;
-  gap: 4px;
+.msg__tool:hover {
+  color: var(--wb-primary);
 }
 
-.bubble__content {
+.msg__bubble {
+  max-width: min(680px, 100%);
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: var(--wb-primary-light);
+  color: var(--wb-text);
   font-size: 14px;
   line-height: 1.6;
-  color: var(--td-text-color-primary);
   white-space: pre-wrap;
   word-break: break-word;
 }
 
-.markdown-body {
-  white-space: normal;
+.msg__body {
+  max-width: min(720px, 100%);
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--wb-text);
+  word-break: break-word;
+}
+
+.msg__waiting {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  max-width: min(420px, 100%);
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--wb-border);
+  background: var(--wb-surface, #fff);
+  color: var(--wb-text-secondary);
+  font-size: 13px;
+  line-height: 1.4;
+  animation: msg-waiting-in 0.28s ease-out;
+}
+
+.msg__waiting-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.msg__waiting-dots i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--wb-primary);
+  opacity: 0.35;
+  animation: msg-waiting-bounce 1.05s ease-in-out infinite;
+}
+
+.msg__waiting-dots i:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.msg__waiting-dots i:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+.msg__waiting-text {
+  color: var(--wb-text-secondary);
+}
+
+@keyframes msg-waiting-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes msg-waiting-bounce {
+  0%,
+  80%,
+  100% {
+    opacity: 0.3;
+    transform: translateY(0);
+  }
+  40% {
+    opacity: 1;
+    transform: translateY(-3px);
+  }
 }
 
 .markdown-body :deep(p) {
-  margin: 0 0 0.6em;
+  margin: 0 0 0.65em;
 }
 
 .markdown-body :deep(p:last-child) {
@@ -508,103 +594,317 @@ onMounted(() => {
 .markdown-body :deep(pre) {
   overflow: auto;
   padding: 10px;
-  border-radius: var(--td-radius-small);
-  background: var(--td-bg-color-secondarycontainer);
+  border-radius: 8px;
+  background: var(--wb-sidebar-bg);
 }
 
-.chat-error {
-  margin: 0;
-  padding: 0 20px 8px;
-  color: var(--td-error-color);
-  font-size: 13px;
-}
-
-.chat-composer {
-  border-top: 1px solid var(--td-component-stroke);
-  padding: 12px 16px 16px;
+.chat__bottom {
+  flex-shrink: 0;
+  width: min(800px, calc(100% - 48px));
+  margin: 0 auto 20px;
   display: flex;
   flex-direction: column;
   gap: 10px;
 }
 
-.chat-composer__actions {
+.chat__kb-tip {
   display: flex;
-  justify-content: flex-end;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--wb-sidebar-bg);
+  color: var(--wb-text-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.chat__kb-reload {
+  border: 0;
+  background: transparent;
+  color: var(--wb-primary);
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+  padding: 0;
+}
+
+.chat__error {
+  margin: 0;
+  color: var(--td-error-color, #d54941);
+  font-size: 13px;
+}
+
+.composer {
+  border: 1px solid var(--wb-border);
+  border-radius: 16px;
+  background: var(--wb-surface);
+  box-shadow: 0 4px 18px color-mix(in srgb, var(--wb-text) 6%, transparent);
+  padding: 12px 14px 10px;
+  display: flex;
+  flex-direction: column;
   gap: 8px;
 }
 
-.chat-refs {
+.composer--disabled {
+  opacity: 0.72;
+}
+
+.composer__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.composer__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--wb-primary-light);
+  color: var(--wb-primary);
+  font-size: 12px;
+}
+
+.composer__chip-remove {
+  border: 0;
+  background: transparent;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: inherit;
+}
+
+.composer__input {
+  width: 100%;
+  border: 0;
+  outline: none;
+  resize: none;
+  background: transparent;
+  color: var(--wb-text);
+  font-size: 14px;
+  line-height: 1.6;
+  min-height: 48px;
+  max-height: 144px;
+  overflow-y: auto;
+  font-family: inherit;
+}
+
+.composer__input:disabled {
+  cursor: not-allowed;
+}
+
+.composer__toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.composer__tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.composer__mode {
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid var(--wb-border);
+  font-size: 12px;
+  color: var(--wb-text-secondary);
+  background: var(--wb-surface);
+}
+
+.composer__at {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  border: 1px solid var(--wb-border);
+  background: var(--wb-surface);
+  color: var(--wb-text);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.composer__at:hover:not(:disabled) {
+  border-color: var(--wb-primary);
+  color: var(--wb-primary);
+}
+
+.composer__at:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.composer__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.composer__send,
+.composer__stop {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.composer__send {
+  background: var(--wb-primary);
+  color: #fff;
+}
+
+.composer__send:disabled {
+  background: var(--wb-hover);
+  color: var(--wb-text-secondary);
+  cursor: not-allowed;
+}
+
+.composer__stop {
+  background: var(--wb-sidebar-bg);
+  color: var(--wb-text);
+}
+
+.kb-popup {
+  min-width: 220px;
+  max-width: 280px;
+  max-height: 260px;
+  overflow: auto;
+  padding: 8px;
+}
+
+.kb-popup__title {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: var(--wb-text-secondary);
+}
+
+.kb-popup__item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 6px 4px;
+  font-size: 13px;
+  cursor: pointer;
+  border-radius: 6px;
+}
+
+.kb-popup__item:hover {
+  background: var(--wb-hover);
+}
+
+.kb-popup__empty {
+  margin: 0;
+  font-size: 12px;
+  color: var(--wb-text-secondary);
+}
+
+.refs {
   width: 300px;
   flex-shrink: 0;
-  background: var(--td-bg-color-container);
-  border: 1px solid var(--td-component-stroke);
-  border-radius: var(--td-radius-large);
-  padding: 12px;
+  border-left: 1px solid var(--wb-border);
+  background: var(--wb-surface);
+  padding: 14px;
   overflow: auto;
 }
 
-.chat-refs__header {
+.refs__header {
   display: flex;
   align-items: center;
   justify-content: space-between;
 }
 
-.chat-refs__header h3 {
+.refs__header h3 {
   margin: 0;
   font-size: 15px;
 }
 
-.chat-refs__hint {
+.refs__close {
+  border: 0;
+  background: transparent;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: var(--wb-text-secondary);
+}
+
+.refs__close:hover {
+  background: var(--wb-hover);
+}
+
+.refs__hint {
   margin: 8px 0 12px;
   font-size: 12px;
-  color: var(--td-text-color-secondary);
+  color: var(--wb-text-secondary);
   line-height: 1.5;
 }
 
-.ref-card {
+.refs__card {
   padding: 10px 0;
-  border-top: 1px solid var(--td-component-stroke);
+  border-top: 1px solid var(--wb-border);
 }
 
-.ref-card h4 {
+.refs__card h4 {
   margin: 0 0 4px;
   font-size: 13px;
 }
 
-.ref-card__meta {
+.refs__meta {
   margin: 0 0 6px;
   font-size: 12px;
-  color: var(--td-text-color-secondary);
+  color: var(--wb-text-secondary);
 }
 
-.ref-card__content {
+.refs__content {
   margin: 0;
   font-size: 12px;
   line-height: 1.5;
-  color: var(--td-text-color-primary);
   white-space: pre-wrap;
   word-break: break-word;
 }
 
-@media (max-width: 960px) {
-  .chat-page {
-    flex-direction: column;
-    max-height: none;
+@media (max-width: 900px) {
+  .welcome__title {
+    font-size: 24px;
   }
 
-  .chat-sidebar,
-  .chat-refs {
-    width: 100%;
-    max-height: 240px;
+  .chat__scroll {
+    padding: 16px 16px 8px;
   }
 
-  .chat-main__header {
-    flex-direction: column;
+  .chat__bottom {
+    width: calc(100% - 32px);
+    margin-bottom: 12px;
   }
 
-  .chat-main__kb {
-    align-items: stretch;
-    width: 100%;
+  .refs {
+    position: absolute;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    z-index: 20;
+    box-shadow: -8px 0 24px color-mix(in srgb, var(--wb-text) 8%, transparent);
   }
 }
 </style>

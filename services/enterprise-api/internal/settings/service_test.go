@@ -58,12 +58,18 @@ func TestEnsureSeedsDefaultTenantIDWhenBlank(t *testing.T) {
 
 func TestUpdateKeepsKeyAndHidesIt(t *testing.T) {
 	const secret = "sk-page-secret-value"
-	store := &memoryStore{item: Record{BaseURL: "http://old.example", APIKey: secret}}
+	const adminPass = "admin-secret-pass"
+	store := &memoryStore{item: Record{
+		BaseURL: "http://old.example", APIKey: secret,
+		AdminEmail: "admin@example.com", AdminPassword: adminPass,
+	}}
 	var applied string
 	svc := NewService(store, nil)
 	svc.now = func() time.Time { return time.Date(2026, 10, 19, 0, 0, 0, 0, time.UTC) }
 	svc.SetHooks(Hooks{
-		Apply: func(baseURL, apiKey string) { applied = baseURL + "|" + apiKey },
+		Apply: func(baseURL, apiKey, adminEmail, adminPassword string) {
+			applied = baseURL + "|" + apiKey + "|" + adminEmail + "|" + adminPassword
+		},
 		Probe: func(context.Context) (string, error) { return "0.8.2", nil },
 	})
 	view, err := svc.Update(context.Background(), Update{BaseURL: "http://new.example", Updater: "admin"})
@@ -73,15 +79,31 @@ func TestUpdateKeepsKeyAndHidesIt(t *testing.T) {
 	if view.BaseURL != "http://new.example" || !view.APIKeyConfigured || !view.Reachable || view.Version != "0.8.2" {
 		t.Fatalf("view = %#v", view)
 	}
+	if view.AdminEmail != "admin@example.com" || !view.AdminPasswordConfigured {
+		t.Fatalf("admin view = %#v", view)
+	}
 	raw, err := json.Marshal(view)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(raw), secret) {
-		t.Fatalf("response leaked the key: %s", raw)
+	if strings.Contains(string(raw), secret) || strings.Contains(string(raw), adminPass) {
+		t.Fatalf("response leaked secrets: %s", raw)
 	}
-	if applied != "http://new.example|"+secret {
+	if applied != "http://new.example|"+secret+"|admin@example.com|"+adminPass {
 		t.Fatalf("apply = %s", applied)
+	}
+}
+
+func TestEnsurePrincipalRequiresAdminCredentials(t *testing.T) {
+	svc := NewService(&memoryStore{item: Record{BaseURL: "http://w.example", APIKey: "k"}}, nil)
+	svc.SetHooks(Hooks{
+		EnsurePrincipal: func(context.Context, string, string, string, string, string) (string, error) {
+			return "signed_token", nil
+		},
+	})
+	_, err := svc.EnsureSignedTokenPrincipal(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "管理员") {
+		t.Fatalf("err = %v", err)
 	}
 }
 

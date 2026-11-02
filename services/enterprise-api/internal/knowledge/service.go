@@ -483,7 +483,7 @@ func (s *Service) wikiReadyBase(ctx context.Context, actor Actor, id string) (Ba
 func (s *Service) visible(ctx context.Context, actor Actor, id string) (Base, ScopeFacts, error) {
 	item, err := s.store.FindBase(ctx, id)
 	if errors.Is(err, ErrNotFound) {
-		return Base{}, ScopeFacts{}, notFound("知识库不存在")
+		return Base{}, ScopeFacts{}, notFound("知识库不存在或无权访问")
 	}
 	if err != nil {
 		return Base{}, ScopeFacts{}, err
@@ -493,20 +493,30 @@ func (s *Service) visible(ctx context.Context, actor Actor, id string) (Base, Sc
 		return Base{}, ScopeFacts{}, err
 	}
 	if !CanView(item, item.Shares(), actor, facts) {
-		return Base{}, ScopeFacts{}, forbidden("无权查看这个知识库")
+		// Uniform not-found hides resource existence from unauthorized callers.
+		return Base{}, ScopeFacts{}, notFound("知识库不存在或无权访问")
 	}
 	return item, facts, nil
 }
 
 func (s *Service) writable(ctx context.Context, actor Actor, id string) (Base, ScopeFacts, error) {
-	item, facts, err := s.visible(ctx, actor, id)
+	item, err := s.store.FindBase(ctx, id)
+	if errors.Is(err, ErrNotFound) {
+		return Base{}, ScopeFacts{}, notFound("知识库不存在或无权访问")
+	}
 	if err != nil {
 		return Base{}, ScopeFacts{}, err
 	}
-	if !CanWrite(item, actor) {
-		return Base{}, ScopeFacts{}, forbidden("无权修改这个知识库")
+	facts, err := s.facts(ctx, actor)
+	if err != nil {
+		return Base{}, ScopeFacts{}, err
 	}
-	return item, facts, nil
+	// Managers may write org/post/role bases in their tenants even when those
+	// bases are outside the caller's own org visibility chain.
+	if CanWrite(item, actor) {
+		return item, facts, nil
+	}
+	return Base{}, ScopeFacts{}, notFound("知识库不存在或无权访问")
 }
 
 func (s *Service) facts(ctx context.Context, actor Actor) (ScopeFacts, error) {

@@ -27,14 +27,23 @@
     { "name": "members", "description": "租户成员与部门任职" },
     { "name": "knowledge", "description": "知识库、文件与 Wiki" },
     { "name": "chat", "description": "用户工作台 AI 对话（代理 WeKnora Session/SSE，需登录）" },
+    { "name": "memory", "description": "个人长期记忆（门禁通过后代理 settings/items；服务端注入 External User Token）" },
     { "name": "models", "description": "WeKnora 模型配置与场景默认绑定" },
-    { "name": "settings", "description": "系统配置中的 WeKnora 连接" },
+    { "name": "settings", "description": "系统配置中的 WeKnora 连接与管理员账号" },
     { "name": "sso", "description": "统一身份认证与单点登录管理（配置与审计；协议端点分阶段交付）" }
   ],
   "paths": {
     "/api/v1/system/settings": {
-      "get": { "tags": ["settings"], "summary": "读取系统配置", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "地址和密钥是否已配置，不返回密钥明文" } } },
-      "put": { "tags": ["settings"], "summary": "更新系统配置", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "已保存。空密钥表示保持原值" } } }
+      "get": { "tags": ["settings"], "summary": "读取系统配置", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "地址、空间 ID、管理员邮箱与密钥/密码是否已配置；不返回密钥与密码明文" } } },
+      "put": { "tags": ["settings"], "summary": "更新系统配置", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "已保存。空密钥/密码表示保持原值" } } }
+    },
+    "/api/v1/system/settings/ensure-principal": {
+      "post": {
+        "tags": ["settings"],
+        "summary": "用已保存的 WeKnora 管理员账号登录并写入 api-principal-config=signed_token",
+        "security": [{ "bearerAuth": [] }],
+        "responses": { "200": { "description": "mode=signed_token" }, "400": { "description": "缺少连接或管理员凭据" } }
+      }
     },
     "/api/v1/weknora/model-providers": {
       "get": { "tags": ["models"], "summary": "厂商目录", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "按类型返回厂商，图标仅在 icons=1 时返回" } } }
@@ -84,25 +93,53 @@
     "/api/v1/weknora/ollama/download/progress/{taskId}": {
       "get": { "tags": ["models"], "summary": "本地下载进度", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "进度" } } }
     },
+    "/api/v1/memory/status": {
+      "get": {
+        "tags": ["memory"],
+        "summary": "个人记忆能力门禁状态（登录即可）",
+        "security": [{ "bearerAuth": [] }],
+        "responses": {
+          "200": { "description": "ready/verified/reason/retested_at 与只读 workspace_enabled、write_mode、max_items" }
+        }
+      }
+    },
+    "/api/v1/memory/settings": {
+      "get": { "tags": ["memory"], "summary": "当前用户个人记忆设置（服务端注入 External User Token）", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "settings" }, "503": { "description": "门禁未开放" } } },
+      "put": { "tags": ["memory"], "summary": "更新当前用户个人记忆开关", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "settings" } } }
+    },
+    "/api/v1/memory/items": {
+      "get": { "tags": ["memory"], "summary": "当前用户记忆列表", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "分页列表" } } },
+      "post": { "tags": ["memory"], "summary": "新增当前用户记忆", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "记忆条目" } } }
+    },
+    "/api/v1/memory/items/{id}": {
+      "put": { "tags": ["memory"], "summary": "更新本人记忆", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "记忆条目" }, "404": { "description": "不存在或无权" } } },
+      "delete": { "tags": ["memory"], "summary": "删除本人记忆", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "已删除" }, "404": { "description": "不存在或无权" } } }
+    },
+    "/api/v1/memory/items/{id}/confirm": {
+      "post": { "tags": ["memory"], "summary": "确认待确认记忆", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "已确认" } } }
+    },
+    "/api/v1/memory/items/{id}/reject": {
+      "post": { "tags": ["memory"], "summary": "拒绝待确认记忆", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "已拒绝" } } }
+    },
     "/api/v1/chat/knowledge-bases": {
       "get": { "tags": ["chat"], "summary": "对话可用知识库（登录即可，按可见性过滤）", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "本地 id/name/description 列表" } } }
     },
     "/api/v1/chat/sessions": {
-      "get": { "tags": ["chat"], "summary": "会话列表", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "分页会话" } } },
-      "post": { "tags": ["chat"], "summary": "创建会话", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "会话" } } }
+      "get": { "tags": ["chat"], "summary": "当前用户会话列表（平台归属表分页）", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "分页会话" }, "404": { "description": "不适用" } } },
+      "post": { "tags": ["chat"], "summary": "创建会话并写入归属映射", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "会话" } } }
     },
     "/api/v1/chat/sessions/{id}": {
-      "put": { "tags": ["chat"], "summary": "重命名会话", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "会话" } } },
-      "delete": { "tags": ["chat"], "summary": "删除会话", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "已删除" } } }
+      "put": { "tags": ["chat"], "summary": "重命名本人会话", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "会话" }, "404": { "description": "不存在或无权" } } },
+      "delete": { "tags": ["chat"], "summary": "删除本人会话", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "已删除" }, "404": { "description": "不存在或无权" } } }
     },
     "/api/v1/chat/sessions/{id}/messages": {
-      "get": { "tags": ["chat"], "summary": "历史消息", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "消息列表" } } }
+      "get": { "tags": ["chat"], "summary": "本人会话历史消息", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "消息列表" }, "404": { "description": "不存在或无权" } } }
     },
     "/api/v1/chat/sessions/{id}/ask": {
-      "post": { "tags": ["chat"], "summary": "流式知识问答（SSE）", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "text/event-stream" } } }
+      "post": { "tags": ["chat"], "summary": "流式知识问答（SSE；校验会话归属与知识库可见性）", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "text/event-stream" }, "404": { "description": "会话或知识库不存在或无权" } } }
     },
     "/api/v1/chat/sessions/{id}/stop": {
-      "post": { "tags": ["chat"], "summary": "停止生成", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "已停止" } } }
+      "post": { "tags": ["chat"], "summary": "停止本人会话生成", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "已停止" }, "404": { "description": "不存在或无权" } } }
     },
     "/api/v1/knowledge-bases": {
       "get": { "tags": ["knowledge"], "summary": "可见知识库", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "分页列表" } } },

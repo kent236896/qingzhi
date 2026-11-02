@@ -237,6 +237,27 @@ func TestMenuNameMigrationRenamesPages(t *testing.T) {
 	}
 }
 
+func TestWeKnoraAdminCredentialsMigration(t *testing.T) {
+	content, err := fs.ReadFile(FS, "000029_weknora_admin_credentials.up.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(content)
+	for _, piece := range []string{"admin_email", "admin_password", "sys_weknora_settings"} {
+		if !strings.Contains(text, piece) {
+			t.Fatalf("admin credentials migration missing %s", piece)
+		}
+	}
+	down, err := fs.ReadFile(FS, "000029_weknora_admin_credentials.down.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	upper := strings.ToUpper(string(down))
+	if !strings.Contains(upper, "ADMIN_EMAIL") || !strings.Contains(upper, "ADMIN_PASSWORD") {
+		t.Fatal("admin credentials down migration does not drop columns")
+	}
+}
+
 func TestSystemSettingsMigration(t *testing.T) {
 	content, err := fs.ReadFile(FS, "000019_system_settings.up.sql")
 	if err != nil {

@@ -2,6 +2,7 @@ import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import { fetchAuthMe, login as loginRequest } from '@/api/auth'
 import type { AuthMe, AuthMethod, LoginResult } from '@/types/auth'
+import { useChatStore } from '@/stores/chat'
 
 /** Separate keys from admin-web so both apps can run in one browser. */
 const TOKEN_KEY = 'qz_wb_access_token'
@@ -22,6 +23,10 @@ export const useAuthStore = defineStore('auth', () => {
 
   const isAuthenticated = computed(() => Boolean(token.value && user.value))
   const displayName = computed(() => user.value?.nickname || user.value?.username || '未登录')
+
+  function hasPermission(code: string) {
+    return permissions.value.includes(code)
+  }
 
   function persist(nextToken: string, nextTenant: string) {
     token.value = nextToken
@@ -54,6 +59,11 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   function applySession(result: LoginResult | AuthMe) {
+    const nextUserID = result.user?.id || ''
+    const prevUserID = user.value?.id || ''
+    if (prevUserID && nextUserID && prevUserID !== nextUserID) {
+      useChatStore().reset()
+    }
     if ('access_token' in result) {
       persist(result.access_token, result.tenant_id)
       // Login responses do not yet include credential flags; restore() fills them.
@@ -152,6 +162,7 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   function clear() {
+    useChatStore().reset()
     persist('', '')
     user.value = null
     version.value = ''
@@ -185,6 +196,7 @@ export const useAuthStore = defineStore('auth', () => {
     bootstrapped,
     isAuthenticated,
     displayName,
+    hasPermission,
     login,
     applyExternalLogin,
     restore,

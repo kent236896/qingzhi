@@ -248,7 +248,7 @@ onBeforeUnmount(() => {
         title="待集成"
         :message="personal.reason"
       />
-      <p v-else class="hint">个人记忆设置页将在隔离验证通过后开放。</p>
+      <p v-else class="hint">个人记忆已按终端用户隔离开放；终端用户在工作台「我的长期记忆」管理自己的开关与条目。</p>
     </t-card>
   </div>
 </template>

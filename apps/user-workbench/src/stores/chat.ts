@@ -244,6 +244,25 @@ export const useChatStore = defineStore('chat', () => {
     })
   }
 
+  /** Clears all chat UI state; call on logout / user switch so prior user data cannot linger. */
+  function reset() {
+    abortController?.abort()
+    abortController = null
+    sessions.value = []
+    knowledgeBases.value = []
+    selectedKnowledgeBaseIds.value = []
+    activeSessionId.value = ''
+    messages.value = []
+    streaming.value = false
+    loadingSessions.value = false
+    loadingMessages.value = false
+    bootstrapping.value = false
+    errorMessage.value = ''
+    sessionFilter.value = ''
+    assistantMessageId.value = ''
+    currentAssistantLocalId = ''
+  }
+
   return {
     sessions,
     knowledgeBases,
@@ -267,5 +286,6 @@ export const useChatStore = defineStore('chat', () => {
     removeSession,
     sendQuestion,
     stop,
+    reset,
   }
 })

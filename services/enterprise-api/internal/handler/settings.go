@@ -27,6 +27,7 @@ func (h Settings) Register(group *gin.RouterGroup, enforce bool) {
 	}
 	group.GET("/system/settings", perm("system:settings:query"), h.get)
 	group.PUT("/system/settings", perm("system:settings:update"), h.update)
+	group.POST("/system/settings/ensure-principal", perm("system:settings:update"), h.ensurePrincipal)
 }
 
 func (h Settings) get(c *gin.Context) {
@@ -45,6 +46,8 @@ func (h Settings) update(c *gin.Context) {
 		BaseURL         string `json:"base_url"`
 		APIKey          string `json:"api_key"`
 		WeKnoraTenantID string `json:"weknora_tenant_id"`
+		AdminEmail      string `json:"admin_email"`
+		AdminPassword   string `json:"admin_password"`
 	}
 	if err := c.ShouldBindJSON(&input); err != nil {
 		response.InvalidParams(c, nil)
@@ -55,9 +58,23 @@ func (h Settings) update(c *gin.Context) {
 		BaseURL:         input.BaseURL,
 		APIKey:          input.APIKey,
 		WeKnoraTenantID: input.WeKnoraTenantID,
+		AdminEmail:      input.AdminEmail,
+		AdminPassword:   input.AdminPassword,
 		Updater:         principal.Username,
 	})
 	h.write(c, view, err)
+}
+
+func (h Settings) ensurePrincipal(c *gin.Context) {
+	if !h.ready(c) {
+		return
+	}
+	mode, err := h.Service.EnsureSignedTokenPrincipal(c.Request.Context())
+	if err != nil {
+		h.write(c, nil, err)
+		return
+	}
+	response.OK(c, map[string]any{"mode": mode})
 }
 
 func (h Settings) ready(c *gin.Context) bool {
@@ -78,6 +95,11 @@ func (h Settings) write(c *gin.Context, data any, err error) {
 		response.Fail(c, http.StatusBadRequest, response.CodeInvalidParams, domain.Message, nil)
 		return
 	}
+	msg := err.Error()
+	if strings.Contains(msg, "登录失败") || strings.Contains(msg, "api-principal") || strings.Contains(msg, "HMAC") || strings.Contains(msg, "token") {
+		response.Fail(c, http.StatusBadGateway, response.CodeInternal, msg, nil)
+		return
+	}
 	if h.Logger != nil {
 		h.Logger.Error("settings request failed", slog.String("component", "settings"), slog.String("error", safeSettingsError(err)))
 	}
@@ -86,7 +108,8 @@ func (h Settings) write(c *gin.Context, data any, err error) {
 
 func safeSettingsError(err error) string {
 	text := err.Error()
-	if strings.Contains(strings.ToLower(text), "api_key") || strings.Contains(strings.ToLower(text), "sk-") {
+	lower := strings.ToLower(text)
+	if strings.Contains(lower, "api_key") || strings.Contains(lower, "sk-") || strings.Contains(lower, "password") {
 		return "settings request failed"
 	}
 	return text

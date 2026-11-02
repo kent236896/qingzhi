@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"strings"
 )
 
@@ -39,16 +40,16 @@ func DefaultMemoryConfig() MemoryConfig {
 }
 
 // GetMemoryConfig reads GET /api/v1/tenants/kv/memory-config for the API key's space.
+// Uses admin JWT under signed_token (API Key alone is rejected).
 func (c *HTTPClient) GetMemoryConfig(ctx context.Context) (MemoryConfig, error) {
-	client, _, _ := c.session()
-	if client == nil {
-		return MemoryConfig{}, fmt.Errorf("weknora client is not configured")
-	}
-	raw, err := client.GetTenantKV(ctx, memoryConfigKVKey)
+	status, raw, err := c.ExchangeAdmin(ctx, http.MethodGet, "/api/v1/tenants/kv/"+memoryConfigKVKey, nil)
 	if err != nil {
-		return MemoryConfig{}, wrap(err)
+		return MemoryConfig{}, err
 	}
-	return decodeMemoryConfig(raw)
+	if status != http.StatusOK {
+		return MemoryConfig{}, fmt.Errorf("读取 memory-config 失败（HTTP %d）", status)
+	}
+	return decodeMemoryConfig(unwrapKVData(raw))
 }
 
 // UpdateMemoryConfig writes PUT /api/v1/tenants/kv/memory-config with a full object.
@@ -56,18 +57,27 @@ func (c *HTTPClient) UpdateMemoryConfig(ctx context.Context, cfg MemoryConfig) (
 	if err := ValidateMemoryConfig(cfg); err != nil {
 		return MemoryConfig{}, err
 	}
-	client, _, _ := c.session()
-	if client == nil {
-		return MemoryConfig{}, fmt.Errorf("weknora client is not configured")
-	}
-	raw, err := client.UpdateTenantKV(ctx, memoryConfigKVKey, cfg)
+	status, raw, err := c.ExchangeAdmin(ctx, http.MethodPut, "/api/v1/tenants/kv/"+memoryConfigKVKey, cfg)
 	if err != nil {
-		return MemoryConfig{}, wrap(err)
+		return MemoryConfig{}, err
 	}
-	if len(raw) == 0 || string(raw) == "null" {
+	if status != http.StatusOK && status != http.StatusCreated && status != http.StatusNoContent {
+		return MemoryConfig{}, fmt.Errorf("写入 memory-config 失败（HTTP %d）", status)
+	}
+	if status == http.StatusNoContent || len(raw) == 0 || string(raw) == "null" {
 		return c.GetMemoryConfig(ctx)
 	}
-	return decodeMemoryConfig(raw)
+	return decodeMemoryConfig(unwrapKVData(raw))
+}
+
+func unwrapKVData(raw []byte) json.RawMessage {
+	var envelope struct {
+		Data json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(raw, &envelope); err == nil && len(envelope.Data) > 0 && string(envelope.Data) != "null" {
+		return envelope.Data
+	}
+	return raw
 }
 
 func decodeMemoryConfig(raw json.RawMessage) (MemoryConfig, error) {

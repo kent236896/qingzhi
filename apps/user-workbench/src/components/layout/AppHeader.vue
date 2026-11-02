@@ -4,13 +4,15 @@ import { useRouter } from 'vue-router'
 import { MessagePlugin } from 'tdesign-vue-next'
 import { useAppStore } from '@/stores/app'
 import { useAuthStore } from '@/stores/auth'
+import { useSettingsStore } from '@/stores/settings'
 
 const router = useRouter()
 const appStore = useAppStore()
 const auth = useAuthStore()
+const settings = useSettingsStore()
 
 function goProfile() {
-  void router.push('/profile')
+  void settings.openSettings('profile')
 }
 
 function onLogout() {
