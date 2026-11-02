@@ -6,11 +6,13 @@ import {
   ChatIcon,
   DeleteIcon,
   EditIcon,
+  FileIcon,
   Folder1Icon,
   HomeIcon,
   MenuFoldIcon,
   MenuUnfoldIcon,
   SearchIcon,
+  ToolsIcon,
   ViewModuleIcon,
 } from 'tdesign-icons-vue-next'
 import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next'
@@ -33,7 +35,9 @@ const navItems = [
   { key: 'new-chat', path: '/chat', label: '新对话', icon: AddIcon, action: 'new-chat' as const },
   { key: 'home', path: '/home', label: '首页', icon: HomeIcon, action: 'nav' as const },
   { key: 'knowledge', path: '/knowledge', label: '知识库', icon: Folder1Icon, action: 'nav' as const },
+  { key: 'artifacts', path: '/artifacts', label: '产物', icon: FileIcon, action: 'nav' as const },
   { key: 'agents', path: '/agents', label: '智能体', icon: ViewModuleIcon, action: 'nav' as const },
+  { key: 'toolbox', path: '/toolbox', label: '工具箱', icon: ToolsIcon, action: 'nav' as const },
 ]
 
 const sessionGroups = computed(() => groupSessionsByRecency(chat.filteredSessions))

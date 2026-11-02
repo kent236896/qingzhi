@@ -25,12 +25,22 @@ const modules: Array<{
   {
     path: '/agents',
     title: '智能体',
-    description: '浏览与使用企业智能体。功能将在后续阶段实现。',
+    description: '按个人 / 租户 / 组织 / 角色查看可用智能体，可新建个人智能体。',
+  },
+  {
+    path: '/toolbox',
+    title: '工具箱',
+    description: '仅支持 MCP（SSE / HTTP Streamable），可见范围与智能体一致。',
+  },
+  {
+    path: '/artifacts',
+    title: '产物',
+    description: '查看并管理对话/智能体生成的文件。',
   },
   {
     path: '/memory',
     title: '我的长期记忆',
-    description: '查看个人记忆能力状态。跨用户隔离复测未通过前不开放读写。',
+    description: '查看与管理个人长期记忆条目。',
   },
   {
     settings: 'profile',
@@ -53,11 +63,11 @@ function openModule(item: (typeof modules)[number]) {
     <section class="home__intro">
       <h2 class="home__title">用户工作台</h2>
       <p class="home__lead">
-        面向企业员工的知识与智能助手入口。已接入统一登录、个人中心、知识库管理与 AI 对话；智能体与个人记忆将在后续阶段实现。
+        面向企业员工的知识与智能助手入口。已接入统一登录、知识库、智能体、工具箱、产物、长期记忆与 AI 对话。
       </p>
       <div class="home__status">
         <span class="home__badge">工程状态</span>
-        <span>登录 · 个人中心 · 知识库 · AI 对话可用</span>
+        <span>登录 · 知识库 · 智能体 · 工具箱 · 产物 · AI 对话可用</span>
       </div>
     </section>
 

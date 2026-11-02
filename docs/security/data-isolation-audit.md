@@ -43,6 +43,9 @@
 | `PUT/DELETE /chat/sessions/:id` | Token + `assertOwned` + 上游 |
 | `GET .../messages`、`POST .../ask|stop` | Token + `assertOwned`（Ask 另校验每个平台 KB） |
 | `GET/PUT/... /knowledge-bases*` | `visible` / `writable`（统一 404） |
+| `GET/POST/DELETE /agents*`、`/toolbox/mcp*` | `scoped.CanView` / `CanWrite`（不可见统一 404） |
+| `GET/DELETE /artifacts` | External User Token + 上游会话归属 |
+| `GET/DELETE /admin/artifacts` | 管理 JWT 运维视图；删除需 `artifact:manage` |
 | Ask `knowledge_base_ids` | `ResolveRemoteKnowledgeBaseIDs` |
 
 ## 6. 修改/新增清单

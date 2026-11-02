@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"qingzhi/enterprise-api/internal/auth"
+	"qingzhi/enterprise-api/internal/catalog"
 	"qingzhi/enterprise-api/internal/chat"
 	"qingzhi/enterprise-api/internal/config"
 	"qingzhi/enterprise-api/internal/dict"
@@ -64,6 +65,7 @@ func run() int {
 	var ssoService *sso.Service
 	var memoryService *weknora.MemoryService
 	var chatService *chat.Service
+	var catalogService *catalog.Service
 	var alertStore monitor.AlertStore
 	db, err := database.OpenPostgres(cfg.Postgres)
 	if err != nil {
@@ -181,6 +183,13 @@ func run() int {
 		}
 		memoryService = weknora.NewMemoryService(remoteClient, settingsService, externalIssuer, cfg.WeKnora.TenantID)
 		chatService = chat.NewService(remoteClient, knowledgeService, memoryService, identityService, chat.NewGormSessionOwnerStore(db.GORM()), log)
+		catalogService = catalog.NewService(
+			catalog.NewAgentStore(db.GORM()),
+			catalog.NewMCPStore(db.GORM()),
+			identityService,
+			remoteClient,
+			log,
+		)
 		dictService = dict.NewService(dict.NewGormStore(db.GORM()))
 		securityService = security.NewService(security.NewGormStore(db.GORM()))
 		ssoVault, vaultErr := sso.NewVault(cfg.SSO.SecretsKey, cfg.Auth.JWTSecret)
@@ -236,6 +245,7 @@ func run() int {
 		Tokens:    tokens,
 		Memory:    memoryService,
 		Chat:      chatService,
+		Catalog:   catalogService,
 	})
 	if err := srv.Run(); err != nil {
 		log.Error("server stopped", slog.String("component", "app"), slog.String("error", err.Error()))

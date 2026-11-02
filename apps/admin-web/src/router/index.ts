@@ -12,6 +12,9 @@ import SsoAuthEventsView from '@/views/sso/AuthEventsView.vue'
 import HomeView from '@/views/HomeView.vue'
 import KnowledgeDetailView from '@/views/KnowledgeDetailView.vue'
 import KnowledgeView from '@/views/KnowledgeView.vue'
+import AgentsView from '@/views/AgentsView.vue'
+import ToolboxView from '@/views/ToolboxView.vue'
+import ArtifactsView from '@/views/ArtifactsView.vue'
 import SettingsView from '@/views/SettingsView.vue'
 import MemorySettingsView from '@/views/MemorySettingsView.vue'
 import LoginView from '@/views/LoginView.vue'
@@ -94,6 +97,25 @@ export const router = createRouter({
           component: KnowledgeView,
           meta: { title: '知识管理', breadcrumb: ['知识管理'] },
         },
+        {
+          path: 'agents',
+          name: 'agents',
+          component: AgentsView,
+          meta: { title: '智能体', breadcrumb: ['智能体'] },
+        },
+        {
+          path: 'toolbox',
+          name: 'toolbox',
+          component: ToolboxView,
+          meta: { title: '工具箱', breadcrumb: ['工具箱'] },
+        },
+        {
+          path: 'artifacts',
+          name: 'artifacts',
+          component: ArtifactsView,
+          meta: { title: '产物', breadcrumb: ['产物'] },
+        },
+
         {
           path: 'models',
           name: 'models',

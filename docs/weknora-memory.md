@@ -97,4 +97,4 @@
 
 ## 6. 智能体 `memory_enabled`
 
-本阶段未集成智能体管理 API。后续若接入，仅在实际 Agent API 支持该字段时写入；空间开关开启不代表所有智能体允许记忆。
+平台已提供智能体目录（`/api/v1/agents`，归属 personal / tenant / org_node / role）。创建时会在 WeKnora 落远端实体；本阶段创建请求的 `config` 透传上游，**尚未**统一强制写入 `memory_enabled`。空间记忆开关开启不代表所有智能体允许记忆；若上游 Agent API 支持该字段，可在创建 body 的 `config` 中自行带上。

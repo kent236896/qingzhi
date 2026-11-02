@@ -13,6 +13,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"qingzhi/enterprise-api/internal/auth"
+	"qingzhi/enterprise-api/internal/catalog"
 	"qingzhi/enterprise-api/internal/chat"
 	"qingzhi/enterprise-api/internal/config"
 	"qingzhi/enterprise-api/internal/dict"
@@ -46,6 +47,7 @@ type Dependencies struct {
 	Tokens    *auth.TokenIssuer
 	Memory    *weknora.MemoryService
 	Chat      *chat.Service
+	Catalog   *catalog.Service
 }
 
 // Server is the HTTP API process.
@@ -157,6 +159,12 @@ func New(deps Dependencies) *Server {
 		Logger:  deps.Logger,
 		Service: deps.Memory,
 	}.Register(protected)
+	handler.Catalog{
+		Logger:   deps.Logger,
+		Service:  deps.Catalog,
+		Identity: deps.Identity,
+		Memory:   deps.Memory,
+	}.Register(protected, enforce)
 	ssoHandler.Register(protected, enforce)
 
 	engine.NoRoute(func(c *gin.Context) {

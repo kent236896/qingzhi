@@ -43,6 +43,14 @@ WeKnora 空间级长期记忆配置在 `GET/PUT /api/v1/weknora/memory-config`�
 
 知识库接口在 `/api/v1/knowledge-bases`。进入页面需要 `knowledge:query`。个人知识库可由本人创建并分享给用户；组织与角色知识库可由具备 `knowledge:manage` 的管理员分享给其他组织或角色（`PUT /api/v1/knowledge-bases/:id/shares`）。岗位知识库暂不支持分享。组织、岗位、角色知识库的创建、删除、改租户需要 `knowledge:manage`。**列表与查看**始终按组织/岗位/角色（及分享）过滤：`knowledge:manage` **不会**让账号看到租户内全部企业库。组织归属（或分享到某组织）时：任职落在该组织**本级、上级或下级**链上的成员可见，**平行组织不可见**（例如归属财务部时，财务部上下级可见，研发部不可见）。管理员仍可在有 `knowledge:manage` 时对租户内企业库执行写操作（即使本人不在该组织可见链上）。上传大小读取 `GET /api/v1/knowledge-bases/limits`。Wiki 状态为 `disabled`、`empty`、`generating`、`ready`、`timeout`：文档都结束后页面数仍为 0，并且等待达到 `KB_WIKI_STATUS_TIMEOUT_MIN`，记为超时，不把文档标成失败。Wiki / 图谱读代理、链接语法与标签结构见 `docs/wiki.md`。
 
+智能体、工具箱（仅 MCP）与产物接口：
+
+- `GET /api/v1/catalog/options`：创建表单选项（租户 / 组织 / 角色 / 用户）。
+- `GET/POST /api/v1/agents`、`DELETE /api/v1/agents/{id}`：需 `agent:query`；列表按个人 / 租户 / 组织 / 角色（及个人分享）过滤；创建个人智能体不需 `agent:manage`，租户 / 组织 / 角色需 `agent:manage`。远端 WeKnora agent id 不下发。
+- `GET/POST /api/v1/toolbox/mcp`、`DELETE /api/v1/toolbox/mcp/{id}`、`POST .../test`：需 `toolbox:query`；仅支持 MCP 传输 `sse` / `http-streamable`；可见性与写权限规则同智能体（`toolbox:manage`）。
+- `GET/DELETE /api/v1/artifacts`：需 `artifact:query`；按当前用户 External User Token 列出/删除会话产物（非目录式创建）。
+- `GET/DELETE /api/v1/admin/artifacts`：运维全局视图；删除需 `artifact:manage`。
+
 用户工作台 AI 对话接口在 `/api/v1/chat`（需登录 Bearer JWT，**不**要求 `knowledge:query` 菜单权限；知识库可见性仍按与知识库列表相同的组织/分享规则校验）。服务端为每次上游请求签发短时 `X-External-User-Token`（缺 `WEKNORA_EXTERNAL_USER_HMAC` 时返回 503，不降级为超管身份），并携带系统设置中的 WeKnora API Key；浏览器不得持有 Key/HMAC。远程 `weknora_kb_id` 不下发给前端。
 
 - `GET /api/v1/chat/knowledge-bases`：当前用户可见知识库（本地 id / name / description / scope_type）。
