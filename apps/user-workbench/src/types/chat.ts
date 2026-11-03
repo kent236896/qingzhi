@@ -9,8 +9,15 @@ export interface ChatSession {
   id: string
   title: string
   description: string
+  agent_id?: string
   created_at: string
   updated_at: string
+}
+
+export interface ChatAgentOption {
+  id: string
+  name: string
+  description?: string
 }
 
 export interface ChatReference {

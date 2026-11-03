@@ -67,6 +67,7 @@ func run() int {
 	var chatService *chat.Service
 	var catalogService *catalog.Service
 	var alertStore monitor.AlertStore
+	var weknoraPinger monitor.Pinger
 	db, err := database.OpenPostgres(cfg.Postgres)
 	if err != nil {
 		log.Error("postgres initialization failed",
@@ -114,6 +115,7 @@ func run() int {
 			}
 		}
 		remoteClient := weknora.NewHTTPClient(cfg.WeKnora.BaseURL, cfg.WeKnora.APIKey, cfg.WeKnora.Timeout)
+		weknoraPinger = remoteClient
 		settingsService = settings.NewService(settings.NewGormStore(db.GORM()), log)
 		if conn, connErr := settingsService.Ensure(context.Background(), cfg.WeKnora.BaseURL, cfg.WeKnora.APIKey, cfg.WeKnora.TenantID); connErr != nil {
 			log.Warn("weknora settings unavailable", slog.String("component", "app"), slog.String("error", connErr.Error()))
@@ -182,7 +184,6 @@ func run() int {
 			}
 		}
 		memoryService = weknora.NewMemoryService(remoteClient, settingsService, externalIssuer, cfg.WeKnora.TenantID)
-		chatService = chat.NewService(remoteClient, knowledgeService, memoryService, identityService, chat.NewGormSessionOwnerStore(db.GORM()), log)
 		catalogService = catalog.NewService(
 			catalog.NewAgentStore(db.GORM()),
 			catalog.NewMCPStore(db.GORM()),
@@ -190,6 +191,10 @@ func run() int {
 			remoteClient,
 			log,
 		)
+		catalogService.SetWeKnoraBaseURL(cfg.WeKnora.BaseURL)
+		catalogService.SetKnowledgeMapper(catalog.KnowledgeServiceMapper{Service: knowledgeService})
+		chatService = chat.NewService(remoteClient, knowledgeService, memoryService, identityService, chat.NewGormSessionOwnerStore(db.GORM()), log)
+		chatService.SetAgentResolver(chat.CatalogAgentResolver{Catalog: catalogService})
 		dictService = dict.NewService(dict.NewGormStore(db.GORM()))
 		securityService = security.NewService(security.NewGormStore(db.GORM()))
 		ssoVault, vaultErr := sso.NewVault(cfg.SSO.SecretsKey, cfg.Auth.JWTSecret)
@@ -225,6 +230,7 @@ func run() int {
 	logDependency(log, "redis", redisClient.Ping)
 
 	monitorService := monitor.New(cfg.Monitor, log, databasePinger, redisClient, alertStore)
+	monitorService.SetWeKnoraPinger(weknoraPinger)
 	monitorCtx, monitorCancel := context.WithCancel(context.Background())
 	defer monitorCancel()
 	go monitorService.Run(monitorCtx)

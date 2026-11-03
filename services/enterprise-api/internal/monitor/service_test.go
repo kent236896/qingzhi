@@ -35,16 +35,16 @@ func testConfig() config.MonitorConfig {
 
 func TestBuildAlerts(t *testing.T) {
 	cfg := testConfig()
-	drafts := buildAlerts(cfg, ServiceState{API: "up", Database: "down", Redis: "up"}, Traffic{}, Resources{}, false)
+	drafts := buildAlerts(cfg, ServiceState{API: "up", Database: "down", Redis: "up", WeKnora: "disabled"}, Traffic{}, Resources{}, false)
 	if len(drafts) != 1 || drafts[0].Target != "database" {
 		t.Fatalf("drafts = %+v", drafts)
 	}
-	drafts = buildAlerts(cfg, ServiceState{API: "up", Database: "up", Redis: "up"}, Traffic{Requests: 4, ServerErrors: 2, Timeouts: 1, P95MS: 500}, Resources{Available: true, CPUPercent: 95}, true)
+	drafts = buildAlerts(cfg, ServiceState{API: "up", Database: "up", Redis: "up", WeKnora: "down"}, Traffic{Requests: 4, ServerErrors: 2, Timeouts: 1, P95MS: 500}, Resources{Available: true, CPUPercent: 95}, true)
 	seen := map[string]bool{}
 	for _, draft := range drafts {
 		seen[draft.Kind+"/"+draft.Target] = true
 	}
-	for _, key := range []string{"traffic/errors", "traffic/latency", "traffic/timeout", "task/collector", "capacity/cpu"} {
+	for _, key := range []string{"service/weknora", "traffic/errors", "traffic/latency", "traffic/timeout", "task/collector", "capacity/cpu"} {
 		if !seen[key] {
 			t.Fatalf("missing %s in %+v", key, drafts)
 		}
@@ -93,11 +93,25 @@ func TestOverviewUsesProbeResults(t *testing.T) {
 		return Resources{Available: true, CPUPercent: 3, MemoryPercent: 10, DiskPercent: 20, DiskMount: `C:\`}, nil
 	}
 	overview := svc.Overview(context.Background())
-	if overview.Service.Database != "up" || overview.Service.Redis != "down" || overview.Service.API != "up" {
+	if overview.Service.Database != "up" || overview.Service.Redis != "down" || overview.Service.API != "up" || overview.Service.WeKnora != "disabled" {
 		t.Fatalf("service = %+v", overview.Service)
 	}
 	if len(overview.Alerts) != 1 || overview.Alerts[0].Target != "redis" {
 		t.Fatalf("alerts = %+v", overview.Alerts)
+	}
+	svc.SetWeKnoraPinger(stubPinger{err: errors.New("wk down")})
+	overview = svc.Overview(context.Background())
+	if overview.Service.WeKnora != "down" {
+		t.Fatalf("weknora = %s", overview.Service.WeKnora)
+	}
+	foundWK := false
+	for _, a := range overview.Alerts {
+		if a.Target == "weknora" {
+			foundWK = true
+		}
+	}
+	if !foundWK {
+		t.Fatalf("alerts missing weknora: %+v", overview.Alerts)
 	}
 	if overview.Resources.DiskMount != `C:\` {
 		t.Fatalf("resources = %+v", overview.Resources)

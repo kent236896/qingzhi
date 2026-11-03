@@ -2,6 +2,7 @@ package catalog
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"time"
 
@@ -21,19 +22,20 @@ type Store interface {
 }
 
 type agentRow struct {
-	ID          string    `gorm:"column:id;primaryKey"`
-	Name        string    `gorm:"column:name"`
-	Description string    `gorm:"column:description"`
-	RemoteID    string    `gorm:"column:weknora_agent_id"`
-	ScopeType   string    `gorm:"column:scope_type"`
-	ScopeID     string    `gorm:"column:scope_id"`
-	Status      int       `gorm:"column:status"`
-	CreatorID   string    `gorm:"column:creator_id"`
-	Creator     string    `gorm:"column:creator"`
-	CreateTime  time.Time `gorm:"column:create_time"`
-	Updater     string    `gorm:"column:updater"`
-	UpdateTime  time.Time `gorm:"column:update_time"`
-	Deleted     bool      `gorm:"column:deleted"`
+	ID          string          `gorm:"column:id;primaryKey"`
+	Name        string          `gorm:"column:name"`
+	Description string          `gorm:"column:description"`
+	RemoteID    string          `gorm:"column:weknora_agent_id"`
+	ConfigJSON  json.RawMessage `gorm:"column:config_json;type:jsonb"`
+	ScopeType   string          `gorm:"column:scope_type"`
+	ScopeID     string          `gorm:"column:scope_id"`
+	Status      int             `gorm:"column:status"`
+	CreatorID   string          `gorm:"column:creator_id"`
+	Creator     string          `gorm:"column:creator"`
+	CreateTime  time.Time       `gorm:"column:create_time"`
+	Updater     string          `gorm:"column:updater"`
+	UpdateTime  time.Time       `gorm:"column:update_time"`
+	Deleted     bool            `gorm:"column:deleted"`
 }
 
 func (agentRow) TableName() string { return "sys_agents" }
@@ -44,6 +46,8 @@ type mcpRow struct {
 	Description   string    `gorm:"column:description"`
 	RemoteID      string    `gorm:"column:weknora_mcp_id"`
 	TransportType string    `gorm:"column:transport_type"`
+	URL           string    `gorm:"column:url"`
+	AuthMode      string    `gorm:"column:auth_mode"`
 	ScopeType     string    `gorm:"column:scope_type"`
 	ScopeID       string    `gorm:"column:scope_id"`
 	Status        int       `gorm:"column:status"`
@@ -111,8 +115,13 @@ func (s *AgentStore) Insert(ctx context.Context, item Item) error {
 }
 
 func (s *AgentStore) Update(ctx context.Context, item Item) error {
+	cfg := item.Config
+	if len(cfg) == 0 {
+		cfg = json.RawMessage(`{}`)
+	}
 	res := s.db.WithContext(ctx).Model(&agentRow{}).Where("id = ? AND deleted = false", item.ID).Updates(map[string]any{
-		"name": item.Name, "description": item.Description, "updater": item.Updater, "update_time": item.UpdateTime,
+		"name": item.Name, "description": item.Description, "config_json": cfg,
+		"updater": item.Updater, "update_time": item.UpdateTime,
 	})
 	if res.Error != nil {
 		return res.Error
@@ -174,16 +183,24 @@ func (s *AgentStore) loadShares(ctx context.Context, id string) ([]string, error
 }
 
 func agentFromRow(row agentRow) Item {
+	cfg := row.ConfigJSON
+	if len(cfg) == 0 {
+		cfg = json.RawMessage(`{}`)
+	}
 	return Item{
-		ID: row.ID, Name: row.Name, Description: row.Description, RemoteID: row.RemoteID,
+		ID: row.ID, Name: row.Name, Description: row.Description, RemoteID: row.RemoteID, Config: cfg,
 		ScopeType: row.ScopeType, ScopeID: row.ScopeID, Status: row.Status, CreatorID: row.CreatorID,
 		Creator: row.Creator, Updater: row.Updater, CreateTime: row.CreateTime, UpdateTime: row.UpdateTime,
 	}
 }
 
 func agentToRow(item Item) agentRow {
+	cfg := item.Config
+	if len(cfg) == 0 {
+		cfg = json.RawMessage(`{}`)
+	}
 	return agentRow{
-		ID: item.ID, Name: item.Name, Description: item.Description, RemoteID: item.RemoteID,
+		ID: item.ID, Name: item.Name, Description: item.Description, RemoteID: item.RemoteID, ConfigJSON: cfg,
 		ScopeType: item.ScopeType, ScopeID: item.ScopeID, Status: item.Status, CreatorID: item.CreatorID,
 		Creator: item.Creator, CreateTime: item.CreateTime, Updater: item.Updater, UpdateTime: item.UpdateTime,
 	}
@@ -238,6 +255,7 @@ func (s *MCPStore) Insert(ctx context.Context, item Item) error {
 func (s *MCPStore) Update(ctx context.Context, item Item) error {
 	res := s.db.WithContext(ctx).Model(&mcpRow{}).Where("id = ? AND deleted = false", item.ID).Updates(map[string]any{
 		"name": item.Name, "description": item.Description, "transport_type": item.TransportType,
+		"url": item.URL, "auth_mode": NormalizeMCPAuthMode(item.AuthMode),
 		"updater": item.Updater, "update_time": item.UpdateTime,
 	})
 	if res.Error != nil {
@@ -302,7 +320,8 @@ func (s *MCPStore) loadShares(ctx context.Context, id string) ([]string, error) 
 func mcpFromRow(row mcpRow) Item {
 	return Item{
 		ID: row.ID, Name: row.Name, Description: row.Description, RemoteID: row.RemoteID,
-		TransportType: row.TransportType, ScopeType: row.ScopeType, ScopeID: row.ScopeID, Status: row.Status,
+		TransportType: row.TransportType, URL: row.URL, AuthMode: NormalizeMCPAuthMode(row.AuthMode),
+		ScopeType: row.ScopeType, ScopeID: row.ScopeID, Status: row.Status,
 		CreatorID: row.CreatorID, Creator: row.Creator, Updater: row.Updater, CreateTime: row.CreateTime, UpdateTime: row.UpdateTime,
 	}
 }
@@ -310,7 +329,8 @@ func mcpFromRow(row mcpRow) Item {
 func mcpToRow(item Item) mcpRow {
 	return mcpRow{
 		ID: item.ID, Name: item.Name, Description: item.Description, RemoteID: item.RemoteID,
-		TransportType: item.TransportType, ScopeType: item.ScopeType, ScopeID: item.ScopeID, Status: item.Status,
+		TransportType: item.TransportType, URL: item.URL, AuthMode: NormalizeMCPAuthMode(item.AuthMode),
+		ScopeType: item.ScopeType, ScopeID: item.ScopeID, Status: item.Status,
 		CreatorID: item.CreatorID, Creator: item.Creator, CreateTime: item.CreateTime, Updater: item.Updater, UpdateTime: item.UpdateTime,
 	}
 }

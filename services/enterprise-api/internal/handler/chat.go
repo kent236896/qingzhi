@@ -69,12 +69,13 @@ func (h Chat) createSession(c *gin.Context) {
 		return
 	}
 	var body struct {
-		Title string `json:"title"`
+		Title   string `json:"title"`
+		AgentID string `json:"agent_id"`
 	}
 	if c.Request.ContentLength != 0 && !response.BindJSON(c, &body) {
 		return
 	}
-	item, err := svc.CreateSession(c.Request.Context(), principal, body.Title)
+	item, err := svc.CreateSession(c.Request.Context(), principal, body.Title, body.AgentID)
 	h.write(c, item, err)
 }
 

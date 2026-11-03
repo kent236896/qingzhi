@@ -19,8 +19,11 @@ export function listChatSessions(page = 1, pageSize = 50) {
   })
 }
 
-export function createChatSession(title?: string) {
-  return http.post<ChatSession>('/api/v1/chat/sessions', { title: title || '' })
+export function createChatSession(title?: string, agentId?: string) {
+  return http.post<ChatSession>('/api/v1/chat/sessions', {
+    title: title || '',
+    agent_id: agentId || undefined,
+  })
 }
 
 export function renameChatSession(id: string, title: string) {

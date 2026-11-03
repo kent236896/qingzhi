@@ -66,7 +66,8 @@ async function onNewChat() {
     if (route.name !== 'chat') {
       await router.push({ name: 'chat' })
     }
-    await chat.createSession()
+    // Draft only: bind agent_id on first ask via createSession.
+    await chat.startDraft()
     searchOpen.value = false
   } catch (error) {
     void MessagePlugin.error(error instanceof Error ? error.message : '创建会话失败')

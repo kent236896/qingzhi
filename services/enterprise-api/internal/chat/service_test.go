@@ -16,6 +16,7 @@ type stubRemote struct {
 	sessions       []weknora.ChatSession
 	created        weknora.ChatSession
 	askBody        weknora.KnowledgeQARequest
+	agentAsk       *weknora.AgentQARequest
 	deletedIDs     []string
 	updateCalled   bool
 	messagesCalled bool
@@ -62,6 +63,13 @@ func (s *stubRemote) OpenKnowledgeChatStream(ctx context.Context, sessionID stri
 		return nil, errors.New("missing external token")
 	}
 	s.askBody = req
+	return &http.Response{StatusCode: 200, Body: http.NoBody}, nil
+}
+func (s *stubRemote) OpenAgentChatStream(ctx context.Context, sessionID string, req weknora.AgentQARequest) (*http.Response, error) {
+	if weknora.ExternalUserTokenFrom(ctx) == "" {
+		return nil, errors.New("missing external token")
+	}
+	s.agentAsk = &req
 	return &http.Response{StatusCode: 200, Body: http.NoBody}, nil
 }
 
@@ -163,10 +171,79 @@ func TestAskRejectsMissingHMAC(t *testing.T) {
 	}
 }
 
+type stubAgents struct {
+	remoteByID map[string]string
+}
+
+func (s *stubAgents) ResolveVisibleAgentRemoteID(_ context.Context, _, _ string, _ []string, _ bool, platformAgentID string) (string, error) {
+	id, ok := s.remoteByID[platformAgentID]
+	if !ok || id == "" {
+		return "", notFound("智能体不存在或无权访问")
+	}
+	return id, nil
+}
+
+func TestAskWithBoundAgentUsesAgentChat(t *testing.T) {
+	remote := &stubRemote{}
+	svc, owners := newTestService(remote, &stubKnowledge{remoteIDs: map[string]string{"kb1": "remote-1"}}, &stubTokens{enabled: true})
+	svc.SetAgentResolver(&stubAgents{remoteByID: map[string]string{"agent-1": "wk-agent-1"}})
+	if err := owners.Insert(context.Background(), SessionOwner{
+		SessionID: "sess-a", UserID: "user-a", TenantID: "tenant-a", AgentID: "agent-1", Title: "t",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	principal := auth.Principal{UserID: "user-a", Username: "ada", TenantID: "tenant-a"}
+	_, err := svc.Ask(context.Background(), principal, "sess-a", "hi", []string{"kb1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if remote.agentAsk == nil || remote.agentAsk.AgentID != "wk-agent-1" || !remote.agentAsk.AgentEnabled {
+		t.Fatalf("agent ask = %+v", remote.agentAsk)
+	}
+	if remote.askBody.Query != "" {
+		t.Fatal("knowledge-chat should not be used when agent bound")
+	}
+}
+
+func TestAskWithBoundAgentAllowsEmptyKnowledgeBases(t *testing.T) {
+	remote := &stubRemote{}
+	svc, owners := newTestService(remote, &stubKnowledge{}, &stubTokens{enabled: true})
+	svc.SetAgentResolver(&stubAgents{remoteByID: map[string]string{"agent-1": "wk-agent-1"}})
+	if err := owners.Insert(context.Background(), SessionOwner{
+		SessionID: "sess-b", UserID: "user-a", TenantID: "tenant-a", AgentID: "agent-1", Title: "t",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	_, err := svc.Ask(context.Background(), auth.Principal{UserID: "user-a", TenantID: "tenant-a"}, "sess-b", "hi", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if remote.agentAsk == nil || remote.agentAsk.AgentID != "wk-agent-1" {
+		t.Fatalf("agent ask = %+v", remote.agentAsk)
+	}
+}
+
+func TestCreateSessionStoresAgentID(t *testing.T) {
+	remote := &stubRemote{}
+	svc, owners := newTestService(remote, &stubKnowledge{}, &stubTokens{enabled: true})
+	svc.SetAgentResolver(&stubAgents{remoteByID: map[string]string{"agent-1": "wk-agent-1"}})
+	item, err := svc.CreateSession(context.Background(), auth.Principal{UserID: "u1", TenantID: "t1"}, "a", "agent-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if item.AgentID != "agent-1" {
+		t.Fatalf("item.AgentID = %q", item.AgentID)
+	}
+	owner, err := owners.Get(context.Background(), "u1", item.ID)
+	if err != nil || owner.AgentID != "agent-1" {
+		t.Fatalf("owner = %+v err=%v", owner, err)
+	}
+}
+
 func TestCreateSessionInjectsExternalTokenAndOwns(t *testing.T) {
 	remote := &stubRemote{}
 	svc, owners := newTestService(remote, &stubKnowledge{}, &stubTokens{enabled: true})
-	item, err := svc.CreateSession(context.Background(), auth.Principal{UserID: "u1", TenantID: "t1"}, "")
+	item, err := svc.CreateSession(context.Background(), auth.Principal{UserID: "u1", TenantID: "t1"}, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -242,7 +319,7 @@ func TestCreateSessionCompensatesWhenOwnershipInsertFails(t *testing.T) {
 	owners := NewMemorySessionOwnerStore()
 	_ = owners.Insert(context.Background(), SessionOwner{SessionID: "sess-1", UserID: "other", TenantID: "t", Title: "x"})
 	svc := NewService(remote, &stubKnowledge{}, &stubTokens{enabled: true}, stubMembers{}, owners, nil)
-	_, err := svc.CreateSession(context.Background(), auth.Principal{UserID: "u1", TenantID: "t1"}, "dup")
+	_, err := svc.CreateSession(context.Background(), auth.Principal{UserID: "u1", TenantID: "t1"}, "dup", "")
 	if err == nil {
 		t.Fatal("expected insert failure")
 	}

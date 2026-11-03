@@ -3,6 +3,7 @@ package chat
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -14,6 +15,7 @@ type gormSessionOwner struct {
 	TenantID        string    `gorm:"column:tenant_id"`
 	WeKnoraTenantID string    `gorm:"column:weknora_tenant_id"`
 	Title           string    `gorm:"column:title"`
+	AgentID         *string   `gorm:"column:agent_id"`
 	CreatedAt       time.Time `gorm:"column:created_at"`
 	UpdatedAt       time.Time `gorm:"column:updated_at"`
 }
@@ -41,6 +43,9 @@ func (s *GormSessionOwnerStore) Insert(ctx context.Context, owner SessionOwner) 
 		SessionID: owner.SessionID, UserID: owner.UserID, TenantID: owner.TenantID,
 		WeKnoraTenantID: owner.WeKnoraTenantID, Title: owner.Title,
 		CreatedAt: owner.CreatedAt, UpdatedAt: owner.UpdatedAt,
+	}
+	if id := strings.TrimSpace(owner.AgentID); id != "" {
+		row.AgentID = &id
 	}
 	return s.db.WithContext(ctx).Create(&row).Error
 }
@@ -121,9 +126,13 @@ func (s *GormSessionOwnerStore) Delete(ctx context.Context, userID, sessionID st
 }
 
 func mapOwner(row gormSessionOwner) SessionOwner {
-	return SessionOwner{
+	owner := SessionOwner{
 		SessionID: row.SessionID, UserID: row.UserID, TenantID: row.TenantID,
 		WeKnoraTenantID: row.WeKnoraTenantID, Title: row.Title,
 		CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt,
 	}
+	if row.AgentID != nil {
+		owner.AgentID = strings.TrimSpace(*row.AgentID)
+	}
+	return owner
 }

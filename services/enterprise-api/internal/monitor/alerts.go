@@ -29,6 +29,9 @@ func buildAlerts(cfg config.MonitorConfig, state ServiceState, traffic Traffic, 
 	if state.Redis != "up" {
 		drafts = append(drafts, Draft{Kind: "service", Target: "redis", Level: "critical", Title: "Redis 不可用", Message: "Redis 连通性检查失败"})
 	}
+	if state.WeKnora != "" && state.WeKnora != "up" && state.WeKnora != "disabled" {
+		drafts = append(drafts, Draft{Kind: "service", Target: "weknora", Level: "warning", Title: "WeKnora 不可用", Message: "WeKnora 连通性检查失败（不影响本服务就绪探针）"})
+	}
 	if cfg.ErrorCount > 0 && traffic.ServerErrors >= cfg.ErrorCount {
 		drafts = append(drafts, Draft{
 			Kind: "traffic", Target: "errors", Level: "warning", Title: "接口错误过多",

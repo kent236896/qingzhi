@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"qingzhi/enterprise-api/internal/auth"
+	"qingzhi/enterprise-api/internal/catalog"
 	"qingzhi/enterprise-api/internal/knowledge"
 	"qingzhi/enterprise-api/internal/weknora"
 )
@@ -45,6 +46,12 @@ type ChatRemote interface {
 	LoadMessages(ctx context.Context, sessionID string, limit int, before *time.Time) ([]weknora.ChatMessage, error)
 	StopSession(ctx context.Context, sessionID, messageID string) error
 	OpenKnowledgeChatStream(ctx context.Context, sessionID string, req weknora.KnowledgeQARequest) (*http.Response, error)
+	OpenAgentChatStream(ctx context.Context, sessionID string, req weknora.AgentQARequest) (*http.Response, error)
+}
+
+// AgentResolver maps a visible platform agent to its WeKnora remote id.
+type AgentResolver interface {
+	ResolveVisibleAgentRemoteID(ctx context.Context, userID, username string, tenantIDs []string, canManageAgents bool, platformAgentID string) (string, error)
 }
 
 // KnowledgeAccess resolves authorized knowledge bases for chat.
@@ -70,11 +77,20 @@ type Service struct {
 	tokens     TokenIssuer
 	membership MembershipLookup
 	owners     SessionOwnerStore
+	agents     AgentResolver
 	log        *slog.Logger
 }
 
 func NewService(remote ChatRemote, knowledge KnowledgeAccess, tokens TokenIssuer, membership MembershipLookup, owners SessionOwnerStore, log *slog.Logger) *Service {
 	return &Service{remote: remote, knowledge: knowledge, tokens: tokens, membership: membership, owners: owners, log: log}
+}
+
+// SetAgentResolver wires catalog agent visibility for agent-chat.
+func (s *Service) SetAgentResolver(r AgentResolver) {
+	if s == nil {
+		return
+	}
+	s.agents = r
 }
 
 func (s *Service) ActorFromPrincipal(ctx context.Context, principal auth.Principal) (knowledge.Actor, error) {
@@ -167,6 +183,7 @@ func (s *Service) ListSessions(ctx context.Context, principal auth.Principal, pa
 		items = append(items, weknora.ChatSession{
 			ID:        owner.SessionID,
 			Title:     owner.Title,
+			AgentID:   owner.AgentID,
 			CreatedAt: owner.CreatedAt.UTC().Format(time.RFC3339),
 			UpdatedAt: owner.UpdatedAt.UTC().Format(time.RFC3339),
 		})
@@ -174,9 +191,15 @@ func (s *Service) ListSessions(ctx context.Context, principal auth.Principal, pa
 	return items, total, nil
 }
 
-func (s *Service) CreateSession(ctx context.Context, principal auth.Principal, title string) (weknora.ChatSession, error) {
+func (s *Service) CreateSession(ctx context.Context, principal auth.Principal, title, platformAgentID string) (weknora.ChatSession, error) {
 	if s.owners == nil {
 		return weknora.ChatSession{}, notReady("会话归属存储不可用")
+	}
+	platformAgentID = strings.TrimSpace(platformAgentID)
+	if platformAgentID != "" {
+		if _, err := s.resolveAgentRemote(ctx, principal, platformAgentID); err != nil {
+			return weknora.ChatSession{}, err
+		}
 	}
 	ctx, identity, err := s.withUser(ctx, principal)
 	if err != nil {
@@ -197,6 +220,7 @@ func (s *Service) CreateSession(ctx context.Context, principal auth.Principal, t
 		TenantID:        principal.TenantID,
 		WeKnoraTenantID: identity.WeKnoraTenantID,
 		Title:           created.Title,
+		AgentID:         platformAgentID,
 		CreatedAt:       now,
 		UpdatedAt:       now,
 	}
@@ -225,7 +249,45 @@ func (s *Service) CreateSession(ctx context.Context, principal auth.Principal, t
 	if created.Title == "" {
 		created.Title = owner.Title
 	}
+	created.AgentID = platformAgentID
 	return created, nil
+}
+
+func (s *Service) resolveAgentRemote(ctx context.Context, principal auth.Principal, platformAgentID string) (string, error) {
+	if s.agents == nil {
+		return "", notReady("智能体目录不可用")
+	}
+	tenantIDs := []string{}
+	if s.membership != nil {
+		ids, err := s.membership.ListMembershipTenantIDs(ctx, principal.UserID)
+		if err != nil {
+			return "", err
+		}
+		tenantIDs = ids
+	}
+	if principal.TenantID != "" {
+		found := false
+		for _, id := range tenantIDs {
+			if id == principal.TenantID {
+				found = true
+				break
+			}
+		}
+		if !found {
+			tenantIDs = append(tenantIDs, principal.TenantID)
+		}
+	}
+	remoteID, err := s.agents.ResolveVisibleAgentRemoteID(
+		ctx, principal.UserID, principal.Username, tenantIDs, principal.HasPermission("agent:manage"), platformAgentID,
+	)
+	if err != nil {
+		return "", mapAgentErr(err)
+	}
+	remoteID = strings.TrimSpace(remoteID)
+	if remoteID == "" {
+		return "", notFound("智能体不存在或无权访问")
+	}
+	return remoteID, nil
 }
 
 func (s *Service) RenameSession(ctx context.Context, principal auth.Principal, sessionID, title string) (weknora.ChatSession, error) {
@@ -315,7 +377,7 @@ func (s *Service) Stop(ctx context.Context, principal auth.Principal, sessionID,
 	return mapRemoteErr(s.remote.StopSession(ctx, sessionID, messageID))
 }
 
-// Ask opens an SSE stream for knowledge Q&A. Caller must close resp.Body.
+// Ask opens an SSE stream. With a bound agent uses agent-chat; otherwise knowledge-chat with agent_enabled=false.
 func (s *Service) Ask(ctx context.Context, principal auth.Principal, sessionID, query string, platformKBIDs []string) (*http.Response, error) {
 	sessionID = strings.TrimSpace(sessionID)
 	query = strings.TrimSpace(query)
@@ -328,6 +390,11 @@ func (s *Service) Ask(ctx context.Context, principal auth.Principal, sessionID, 
 	if err := s.assertOwned(ctx, principal, sessionID); err != nil {
 		return nil, err
 	}
+	owner, err := s.owners.Get(ctx, principal.UserID, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	platformAgentID := strings.TrimSpace(owner.AgentID)
 	actor, err := s.ActorFromPrincipal(ctx, principal)
 	if err != nil {
 		return nil, err
@@ -335,13 +402,34 @@ func (s *Service) Ask(ctx context.Context, principal auth.Principal, sessionID, 
 	if s.knowledge == nil {
 		return nil, notReady("知识库服务不可用")
 	}
-	remoteIDs, err := s.knowledge.ResolveRemoteKnowledgeBaseIDs(ctx, actor, platformKBIDs)
-	if err != nil {
-		return nil, err
+	var remoteIDs []string
+	if len(platformKBIDs) > 0 {
+		remoteIDs, err = s.knowledge.ResolveRemoteKnowledgeBaseIDs(ctx, actor, platformKBIDs)
+		if err != nil {
+			return nil, err
+		}
+	} else if platformAgentID == "" {
+		return nil, invalid("请至少选择一个知识库")
 	}
 	ctx, _, err = s.withUser(ctx, principal)
 	if err != nil {
 		return nil, err
+	}
+	if platformAgentID != "" {
+		remoteAgentID, resolveErr := s.resolveAgentRemote(ctx, principal, platformAgentID)
+		if resolveErr != nil {
+			return nil, resolveErr
+		}
+		resp, askErr := s.remote.OpenAgentChatStream(ctx, sessionID, weknora.AgentQARequest{
+			Query:            query,
+			AgentID:          remoteAgentID,
+			KnowledgeBaseIDs: remoteIDs,
+			AgentEnabled:     true,
+		})
+		if askErr != nil {
+			return nil, mapRemoteErr(askErr)
+		}
+		return resp, nil
 	}
 	resp, err := s.remote.OpenKnowledgeChatStream(ctx, sessionID, weknora.KnowledgeQARequest{
 		Query:            query,
@@ -352,6 +440,24 @@ func (s *Service) Ask(ctx context.Context, principal auth.Principal, sessionID, 
 		return nil, mapRemoteErr(err)
 	}
 	return resp, nil
+}
+
+func mapAgentErr(err error) error {
+	if err == nil {
+		return nil
+	}
+	var domain *catalog.Error
+	if errors.As(err, &domain) {
+		switch {
+		case errors.Is(domain.Kind, catalog.ErrNotFound), errors.Is(domain.Kind, catalog.ErrForbidden):
+			return notFound("智能体不存在或无权访问")
+		case errors.Is(domain.Kind, catalog.ErrNotReady):
+			return notReady(domain.Message)
+		case errors.Is(domain.Kind, catalog.ErrInvalid):
+			return invalid(domain.Message)
+		}
+	}
+	return err
 }
 
 func mapRemoteErr(err error) error {

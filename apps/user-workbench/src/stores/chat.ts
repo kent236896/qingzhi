@@ -10,13 +10,16 @@ import {
   renameChatSession,
   stopChatGeneration,
 } from '@/api/chat'
-import type { ChatKnowledgeBase, ChatMessage, ChatReference, ChatSession } from '@/types/chat'
+import { listAgents } from '@/api/catalog'
+import type { ChatAgentOption, ChatKnowledgeBase, ChatMessage, ChatReference, ChatSession } from '@/types/chat'
 import { ApiError } from '@/utils/http'
 
 export const useChatStore = defineStore('chat', () => {
   const sessions = ref<ChatSession[]>([])
   const knowledgeBases = ref<ChatKnowledgeBase[]>([])
+  const agents = ref<ChatAgentOption[]>([])
   const selectedKnowledgeBaseIds = ref<string[]>([])
+  const selectedAgentId = ref('')
   const activeSessionId = ref('')
   const messages = ref<ChatMessage[]>([])
   const streaming = ref(false)
@@ -32,6 +35,9 @@ export const useChatStore = defineStore('chat', () => {
   const activeSession = computed(
     () => sessions.value.find((item) => item.id === activeSessionId.value) || null,
   )
+  const selectedAgent = computed(
+    () => agents.value.find((item) => item.id === selectedAgentId.value) || null,
+  )
   const filteredSessions = computed(() => {
     const keyword = sessionFilter.value.trim().toLowerCase()
     if (!keyword) return sessions.value
@@ -43,7 +49,7 @@ export const useChatStore = defineStore('chat', () => {
     bootstrapping.value = true
     errorMessage.value = ''
     try {
-      await Promise.all([loadKnowledgeBases(), loadSessions()])
+      await Promise.all([loadKnowledgeBases(), loadAgents(), loadSessions()])
     } finally {
       bootstrapping.value = false
     }
@@ -54,6 +60,19 @@ export const useChatStore = defineStore('chat', () => {
     knowledgeBases.value = response.data ?? []
     if (selectedKnowledgeBaseIds.value.length === 0 && knowledgeBases.value.length > 0) {
       selectedKnowledgeBaseIds.value = [knowledgeBases.value[0].id]
+    }
+  }
+
+  async function loadAgents() {
+    try {
+      const response = await listAgents()
+      agents.value = (response.data ?? []).map((item) => ({
+        id: item.id,
+        name: item.name,
+        description: item.description,
+      }))
+    } catch {
+      agents.value = []
     }
   }
 
@@ -76,6 +95,8 @@ export const useChatStore = defineStore('chat', () => {
       await stop()
     }
     activeSessionId.value = sessionId
+    const session = sessions.value.find((item) => item.id === sessionId)
+    selectedAgentId.value = session?.agent_id || ''
     loadingMessages.value = true
     errorMessage.value = ''
     try {
@@ -90,11 +111,23 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
+  /** Clears the composer to a blank draft so the user can pick an agent before the first ask. */
+  async function startDraft() {
+    if (streaming.value) {
+      await stop()
+    }
+    activeSessionId.value = ''
+    messages.value = []
+    errorMessage.value = ''
+    assistantMessageId.value = ''
+    currentAssistantLocalId = ''
+  }
+
   async function createSession(title?: string) {
     if (streaming.value) {
       await stop()
     }
-    const response = await createChatSession(title)
+    const response = await createChatSession(title, selectedAgentId.value || undefined)
     sessions.value = [response.data, ...sessions.value.filter((item) => item.id !== response.data.id)]
     activeSessionId.value = response.data.id
     messages.value = []
@@ -118,12 +151,16 @@ export const useChatStore = defineStore('chat', () => {
   async function sendQuestion(query: string) {
     const text = query.trim()
     if (!text || streaming.value) return
-    if (selectedKnowledgeBaseIds.value.length === 0) {
-      errorMessage.value = '请先选择至少一个知识库'
+    const useAgent = Boolean(selectedAgentId.value)
+    if (!useAgent && selectedKnowledgeBaseIds.value.length === 0) {
+      errorMessage.value = '请先选择至少一个知识库，或选择一个智能体'
       return
     }
     errorMessage.value = ''
     if (!activeSessionId.value) {
+      await createSession(text.slice(0, 30))
+    } else if (selectedAgentId.value && activeSession.value?.agent_id !== selectedAgentId.value) {
+      // Agent is bound at session create; start a new session when selection changes.
       await createSession(text.slice(0, 30))
     }
     const sessionId = activeSessionId.value
@@ -250,7 +287,9 @@ export const useChatStore = defineStore('chat', () => {
     abortController = null
     sessions.value = []
     knowledgeBases.value = []
+    agents.value = []
     selectedKnowledgeBaseIds.value = []
+    selectedAgentId.value = ''
     activeSessionId.value = ''
     messages.value = []
     streaming.value = false
@@ -266,7 +305,10 @@ export const useChatStore = defineStore('chat', () => {
   return {
     sessions,
     knowledgeBases,
+    agents,
     selectedKnowledgeBaseIds,
+    selectedAgentId,
+    selectedAgent,
     activeSessionId,
     activeSession,
     messages,
@@ -281,6 +323,7 @@ export const useChatStore = defineStore('chat', () => {
     loadKnowledgeBases,
     loadSessions,
     openSession,
+    startDraft,
     createSession,
     renameSession,
     removeSession,

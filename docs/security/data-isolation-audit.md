@@ -65,8 +65,9 @@
 | `go test ./internal/knowledge/...` | **PASS** |
 | 实机对话 A/B（kent vs ada.verify，同一 WeKnora API Key） | **PASS**（`scripts/chat-isolation-retest.go`）：互不可见会话列表；跨用户 messages/rename/delete/stop/ask 均为 **404** |
 | 实机知识库 | kent 个人库：ada GET **拒绝**；kent GET admin 个人库 **404**；ada Ask 填入 kent 的 `knowledge_base_ids` **404**。个人库创建在 ada 上因缺菜单权限 403（未测创建路径，已有个人库交叉读/检索已测） |
+| 实机智能体 / MCP / 对话（kun.tang vs kent，2026-11-03） | **PASS**（`scripts/agent-mcp-isolation-retest.go`）：双方个人 MCP/智能体列表互不可见；跨用户改删 MCP/Agent、绑定对方 agent 建会话、读 messages/Ask 均为 **404**；己方绑定 agent 的 Ask 可走 agent-chat |
 
-说明：为跑实机登录临时将 `kent` / `ada.verify` 本地密码重置为测试口令；请管理员按需改回。
+说明：为跑实机登录临时将测试账号本地密码重置；请管理员按需改回。复测账号曾挂「知识库」角色以具备 `agent:query` / `toolbox:query`。
 
 ## 8. 遗留风险
 

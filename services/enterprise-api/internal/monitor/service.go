@@ -20,6 +20,7 @@ type Service struct {
 	log       *slog.Logger
 	database  Pinger
 	redis     Pinger
+	weknora   Pinger
 	store     AlertStore
 	readHost  func(context.Context) (Resources, error)
 	recorder  *Recorder
@@ -52,6 +53,15 @@ func New(cfg config.MonitorConfig, log *slog.Logger, database, redis Pinger, sto
 	}
 }
 
+// SetWeKnoraPinger wires optional WeKnora reachability into overview/alerts.
+// Ready probes stay independent of WeKnora.
+func (s *Service) SetWeKnoraPinger(p Pinger) {
+	if s == nil {
+		return
+	}
+	s.weknora = p
+}
+
 // Run samples alerts until the context is canceled.
 func (s *Service) Run(ctx context.Context) {
 	if s == nil {
@@ -75,7 +85,12 @@ func (s *Service) Overview(ctx context.Context) Overview {
 	s.evalMu.Lock()
 	defer s.evalMu.Unlock()
 	now := time.Now()
-	state := ServiceState{API: "up", Database: ping(ctx, s.log, "database", s.database), Redis: ping(ctx, s.log, "redis", s.redis)}
+	state := ServiceState{
+		API:      "up",
+		Database: ping(ctx, s.log, "database", s.database),
+		Redis:    ping(ctx, s.log, "redis", s.redis),
+		WeKnora:  pingOptional(ctx, s.log, "weknora", s.weknora),
+	}
 	resources, resourceErr := s.resources(ctx)
 	resourceFailed := resourceErr != nil
 	traffic, errors, recent := s.recorder.Snapshot(s.cfg.Window, now)
@@ -243,6 +258,13 @@ func ping(ctx context.Context, log *slog.Logger, name string, pinger Pinger) str
 		return "down"
 	}
 	return "up"
+}
+
+func pingOptional(ctx context.Context, log *slog.Logger, name string, pinger Pinger) string {
+	if pinger == nil {
+		return "disabled"
+	}
+	return ping(ctx, log, name, pinger)
 }
 
 func exempt(path string) bool {

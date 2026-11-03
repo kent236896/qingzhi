@@ -21,6 +21,8 @@ const suggestionSeed = ref(Date.now())
 const productName = '知助手'
 
 const emptyKnowledge = computed(() => !chat.bootstrapping && chat.knowledgeBases.length === 0)
+const hasAgent = computed(() => Boolean(chat.selectedAgentId))
+const canStart = computed(() => hasAgent.value || !emptyKnowledge.value)
 
 const isWelcome = computed(
   () => !chat.loadingMessages && chat.messages.length === 0 && !chat.streaming,
@@ -39,8 +41,13 @@ const suggestionPool = computed(() => {
 const suggestions = computed(() => pickSuggestions(suggestionPool.value, suggestionSeed.value, 4))
 
 const canSend = computed(
-  () => Boolean(draft.value.trim()) && !chat.streaming && !emptyKnowledge.value,
+  () => Boolean(draft.value.trim()) && !chat.streaming && canStart.value,
 )
+
+const agentOptions = computed(() => [
+  { label: '不使用智能体（知识库问答）', value: '' },
+  ...chat.agents.map((item) => ({ label: item.name, value: item.id })),
+])
 
 async function refresh() {
   try {
@@ -79,7 +86,7 @@ async function onStop() {
 }
 
 async function askSuggestion(text: string) {
-  if (emptyKnowledge.value || chat.streaming) return
+  if (!canStart.value || chat.streaming) return
   draft.value = text
   await onSend()
 }
@@ -163,7 +170,7 @@ watch(
         <div v-if="isWelcome" class="welcome">
           <h1 class="welcome__title">Hi，我是 {{ productName }}，让你的知识触手可及</h1>
 
-          <template v-if="!emptyKnowledge && suggestions.length > 0">
+          <template v-if="canStart && suggestions.length > 0">
             <div class="welcome__prompt-row">
               <span>你可以这样问我</span>
               <button type="button" class="welcome__refresh" title="换一批" @click="refreshSuggestions">
@@ -232,22 +239,37 @@ watch(
       </div>
 
       <div class="chat__bottom">
-        <div v-if="emptyKnowledge" class="chat__kb-tip">
+        <div v-if="!canStart" class="chat__kb-tip">
           <span>
-            当前账号没有可检索的知识库，请联系管理员授权后重试，不会使用模拟数据。
+            当前账号没有可检索的知识库或可用智能体，请联系管理员授权后重试，不会使用模拟数据。
           </span>
           <button type="button" class="chat__kb-reload" @click="refresh">重新加载</button>
         </div>
         <p v-else-if="chat.errorMessage" class="chat__error">{{ chat.errorMessage }}</p>
 
-        <div class="composer" :class="{ 'composer--disabled': emptyKnowledge }">
+        <div class="composer" :class="{ 'composer--disabled': !canStart }">
+          <div class="composer__agent">
+            <span class="composer__agent-label">智能体</span>
+            <t-select
+              v-model="chat.selectedAgentId"
+              :options="agentOptions"
+              :disabled="chat.streaming || Boolean(chat.activeSessionId)"
+              placeholder="不使用智能体"
+              clearable
+              style="width: 220px"
+            />
+            <span v-if="chat.activeSessionId && chat.activeSession?.agent_id" class="composer__agent-bound">
+              本会话已绑定智能体
+            </span>
+          </div>
+
           <div v-if="selectedKnowledgeBases.length" class="composer__chips">
             <span v-for="kb in selectedKnowledgeBases" :key="kb.id" class="composer__chip">
               @{{ kb.name }}
               <button
                 type="button"
                 class="composer__chip-remove"
-                :disabled="chat.streaming || emptyKnowledge"
+                :disabled="chat.streaming || !canStart"
                 @click="removeKnowledge(kb.id)"
               >
                 <CloseIcon />
@@ -261,14 +283,14 @@ watch(
             class="composer__input"
             rows="2"
             placeholder="输入问题或描述任务..."
-            :disabled="chat.streaming || emptyKnowledge"
+            :disabled="chat.streaming || !canStart"
             @keydown="onComposerKeydown"
             @input="autosizeInput"
           />
 
           <div class="composer__toolbar">
             <div class="composer__tools">
-              <span class="composer__mode">快速问答</span>
+              <span class="composer__mode">{{ hasAgent ? '智能体对话' : '快速问答' }}</span>
 
               <t-popup
                 v-model:visible="kbPopupVisible"
@@ -649,6 +671,23 @@ watch(
 
 .composer--disabled {
   opacity: 0.72;
+}
+
+.composer__agent {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.composer__agent-label {
+  font-size: 12px;
+  color: var(--wb-text-secondary);
+}
+
+.composer__agent-bound {
+  font-size: 12px;
+  color: var(--wb-text-secondary);
 }
 
 .composer__chips {

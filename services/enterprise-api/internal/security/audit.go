@@ -87,6 +87,14 @@ func moduleOf(path string) string {
 		return "用户"
 	case strings.Contains(path, "/tenants"):
 		return "租户"
+	case strings.Contains(path, "/agents"):
+		return "智能体"
+	case strings.Contains(path, "/toolbox"):
+		return "MCP工具箱"
+	case strings.Contains(path, "/chat/"):
+		return "对话"
+	case strings.Contains(path, "/knowledge"):
+		return "知识库"
 	case strings.Contains(path, "/weknora"):
 		return "模型配置"
 	default:
@@ -104,12 +112,22 @@ func actionOf(method, path string) string {
 		return "分配部门"
 	case strings.Contains(path, "/debug"):
 		return "调试"
-	case strings.Contains(path, "/models/test"):
+	case strings.Contains(path, "/models/test") || strings.HasSuffix(path, "/test"):
 		return "测试"
 	case strings.Contains(path, "/copy"):
 		return "复制"
 	case strings.Contains(path, "/credentials"):
 		return "密钥"
+	case strings.Contains(path, "/oauth/authorize-url"):
+		return "OAuth授权"
+	case strings.Contains(path, "/oauth/token") && method == "DELETE":
+		return "OAuth撤销"
+	case strings.Contains(path, "/metadata/refresh"):
+		return "刷新元数据"
+	case strings.HasSuffix(path, "/ask"):
+		return "问答"
+	case strings.HasSuffix(path, "/stop"):
+		return "停止生成"
 	case method == "POST":
 		return "新增"
 	case method == "PATCH" || method == "PUT":

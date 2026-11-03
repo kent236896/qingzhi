@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -82,6 +83,34 @@ func NewHTTPClient(baseURL, apiKey string, timeout time.Duration) *HTTPClient {
 	return client
 }
 
+// Ping checks WeKnora reachability with a lightweight GET to the configured base URL.
+// Any HTTP response (including 401/404) counts as up; only transport failures count as down.
+// Does not use Admin JWT and must not be mixed into chat/session auth.
+func (c *HTTPClient) Ping(ctx context.Context) error {
+	if c == nil {
+		return errors.New("weknora client is nil")
+	}
+	_, baseURL, _ := c.session()
+	if strings.TrimSpace(baseURL) == "" {
+		return errors.New("weknora base url is empty")
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+"/", nil)
+	if err != nil {
+		return err
+	}
+	client := c.http
+	if client == nil {
+		client = http.DefaultClient
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
+	return nil
+}
+
 // Configure replaces the WeKnora address and API key used by later requests.
 func (c *HTTPClient) Configure(baseURL, apiKey string) {
 	if c == nil {
@@ -126,8 +155,15 @@ func (c *HTTPClient) session() (*sdk.Client, string, string) {
 // Exchange performs a JSON request and returns the status and body, including non-2xx responses.
 // Transport failures are returned as err. The body is limited to 8 MiB.
 // Uses API Key (+ optional X-External-User-Token from ctx). Does not send admin JWT.
+// Rejects admin-plane mutations (Agent/MCP definition writes, shared credentials); see AssertUserPlaneAllowed.
 func (c *HTTPClient) Exchange(ctx context.Context, method, path string, body any) (int, []byte, error) {
+	if err := AssertUserPlaneAllowed(method, path); err != nil {
+		return 0, nil, err
+	}
 	client, _, _ := c.session()
+	if client == nil {
+		return 0, nil, fmt.Errorf("weknora client is not configured")
+	}
 	resp, err := client.Raw(ctx, method, path, body)
 	if err != nil {
 		return 0, nil, err
@@ -138,6 +174,15 @@ func (c *HTTPClient) Exchange(ctx context.Context, method, path string, body any
 		return resp.StatusCode, nil, err
 	}
 	return resp.StatusCode, payload, nil
+}
+
+// ExchangeUser is the terminal-user plane: requires X-External-User-Token in ctx,
+// then same guards as Exchange. Use for OAuth per-principal and similar hops.
+func (c *HTTPClient) ExchangeUser(ctx context.Context, method, path string, body any) (int, []byte, error) {
+	if err := RequireExternalUserToken(ctx); err != nil {
+		return 0, nil, err
+	}
+	return c.Exchange(ctx, method, path, body)
 }
 
 // ExchangeAdmin is for tenant-admin WeKnora APIs under signed_token

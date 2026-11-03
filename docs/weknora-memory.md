@@ -31,7 +31,7 @@
 - `aud`：`weknora`  
 - `iat` / `exp`：默认 TTL 10 分钟，最长 24 小时  
 
-请求 WeKnora 时由服务端同时携带现有 `X-API-Key` 与（在需要终端主体时）`X-External-User-Token`。浏览器不持有 API Key / HMAC。
+请求 WeKnora 时由服务端同时携带现有 `X-API-Key` 与（在需要终端主体时）`X-External-User-Token`。浏览器不持有 API Key / HMAC。管理面 Admin JWT 与用户面 External Token 的分工见 [weknora-call-planes.md](weknora-call-planes.md)。
 
 管理端调试接口：`POST /api/v1/weknora/external-user-token`（需 `model:manage`）。
 
@@ -97,4 +97,4 @@
 
 ## 6. 智能体 `memory_enabled`
 
-平台已提供智能体目录（`/api/v1/agents`，归属 personal / tenant / org_node / role）。创建时会在 WeKnora 落远端实体；本阶段创建请求的 `config` 透传上游，**尚未**统一强制写入 `memory_enabled`。空间记忆开关开启不代表所有智能体允许记忆；若上游 Agent API 支持该字段，可在创建 body 的 `config` 中自行带上。
+平台智能体目录（`/api/v1/agents`）的 `config.memory_enabled` 可在管理端/工作台编辑；默认 `true`，创建/更新时写入 WeKnora 远端 config。空间记忆总开关仍在 `weknora/memory-config`；二者同时开启时个人记忆才会生效。

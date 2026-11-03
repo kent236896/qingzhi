@@ -12,6 +12,7 @@ type SessionOwner struct {
 	TenantID        string
 	WeKnoraTenantID string
 	Title           string
+	AgentID         string // platform sys_agents.id; empty = knowledge-chat only
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
 }

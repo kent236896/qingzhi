@@ -3,10 +3,12 @@ package monitor
 import "time"
 
 // ServiceState is the live connectivity of one dependency.
+// WeKnora may be "disabled" when the client is not configured.
 type ServiceState struct {
 	API      string `json:"api"`
 	Database string `json:"database"`
 	Redis    string `json:"redis"`
+	WeKnora  string `json:"weknora"`
 }
 
 // Traffic is aggregated from real requests inside the monitor window.

@@ -2,6 +2,7 @@ package catalog
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"strings"
@@ -28,6 +29,7 @@ type AgentRemote interface {
 	CreateRemoteAgent(ctx context.Context, input weknora.CreateRemoteAgentInput) (weknora.RemoteAgent, error)
 	UpdateRemoteAgent(ctx context.Context, id string, input weknora.CreateRemoteAgentInput) (weknora.RemoteAgent, error)
 	DeleteRemoteAgent(ctx context.Context, id string) error
+	CopyRemoteAgent(ctx context.Context, id string) (weknora.RemoteAgent, error)
 }
 
 // MCPRemote creates/updates/deletes WeKnora MCP services.
@@ -36,6 +38,13 @@ type MCPRemote interface {
 	UpdateRemoteMCPService(ctx context.Context, id string, updates map[string]any) (weknora.RemoteMCPService, error)
 	DeleteRemoteMCPService(ctx context.Context, id string) error
 	TestRemoteMCPService(ctx context.Context, id string) (map[string]any, error)
+	PutRemoteMCPCredentials(ctx context.Context, id string, values map[string]string) (weknora.MCPCredentialsStatus, error)
+	DeleteRemoteMCPCredential(ctx context.Context, id, field string) error
+	RefreshRemoteMCPMetadata(ctx context.Context, id string) (map[string]any, error)
+	GetRemoteMCPMetadata(ctx context.Context, id string) (any, error)
+	GetRemoteMCPOAuthStatus(ctx context.Context, id, authorizationAttempt string) (weknora.MCPOAuthStatus, error)
+	CreateRemoteMCPAuthorizeURL(ctx context.Context, id, redirectURI, frontendRedirect string) (weknora.MCPAuthorizeURLResult, error)
+	RevokeRemoteMCPOAuthToken(ctx context.Context, id string) error
 }
 
 // ArtifactRemote lists/deletes WeKnora artifacts.
@@ -48,13 +57,15 @@ type ArtifactRemote interface {
 
 // Service manages agents, MCP toolbox, and artifacts.
 type Service struct {
-	agents    Store
-	mcp       Store
-	identity  Identity
-	agentAPI  AgentRemote
-	mcpAPI    MCPRemote
-	artifacts ArtifactRemote
-	log       *slog.Logger
+	agents         Store
+	mcp            Store
+	identity       Identity
+	knowledge      KnowledgeRemoteMapper
+	agentAPI       AgentRemote
+	mcpAPI         MCPRemote
+	artifacts      ArtifactRemote
+	weknoraBaseURL string
+	log            *slog.Logger
 }
 
 func NewService(agents, mcp Store, id Identity, remote *weknora.HTTPClient, log *slog.Logger) *Service {
@@ -65,12 +76,52 @@ func NewService(agents, mcp Store, id Identity, remote *weknora.HTTPClient, log 
 	}
 }
 
+// SetWeKnoraBaseURL sets the WeKnora origin used to build MCP OAuth redirect_uri.
+func (s *Service) SetWeKnoraBaseURL(base string) {
+	if s == nil {
+		return
+	}
+	s.weknoraBaseURL = strings.TrimRight(strings.TrimSpace(base), "/")
+}
+
+// SetKnowledgeMapper wires platform KB id → WeKnora remote id for agent config.
+func (s *Service) SetKnowledgeMapper(m KnowledgeRemoteMapper) {
+	if s == nil {
+		return
+	}
+	s.knowledge = m
+}
+
 func (s *Service) ListAgents(ctx context.Context, actor Actor) ([]Item, error) {
 	return s.listVisible(ctx, s.agents, actor)
 }
 
+// ResolveVisibleAgentRemoteID returns the WeKnora agent id for a platform agent the actor can view.
+func (s *Service) ResolveVisibleAgentRemoteID(ctx context.Context, actor Actor, platformAgentID string) (string, error) {
+	platformAgentID = strings.TrimSpace(platformAgentID)
+	if platformAgentID == "" {
+		return "", invalid("缺少智能体标识")
+	}
+	item, err := s.visible(ctx, s.agents, actor, platformAgentID)
+	if err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(item.RemoteID) == "" {
+		return "", notReady("智能体远端不可用")
+	}
+	return item.RemoteID, nil
+}
+
 func (s *Service) ListMCP(ctx context.Context, actor Actor) ([]Item, error) {
-	return s.listVisible(ctx, s.mcp, actor)
+	items, err := s.listVisible(ctx, s.mcp, actor)
+	if err != nil {
+		return nil, err
+	}
+	for i := range items {
+		// Phase 2: no DB column yet; expose stable default for clients.
+		items[i].AuthMode = NormalizeMCPAuthMode(items[i].AuthMode)
+	}
+	return items, nil
 }
 
 func (s *Service) listVisible(ctx context.Context, store Store, actor Actor) ([]Item, error) {
@@ -105,13 +156,22 @@ func (s *Service) CreateAgent(ctx context.Context, actor Actor, input CreateInpu
 	if s.agentAPI == nil {
 		return Item{}, notReady("WeKnora 未配置")
 	}
+	platformCfg, err := NormalizePlatformAgentConfig(input.Config)
+	if err != nil {
+		return Item{}, err
+	}
+	remoteCfg, err := s.toRemoteAgentConfig(ctx, actor, platformCfg)
+	if err != nil {
+		return Item{}, err
+	}
 	remote, err := s.agentAPI.CreateRemoteAgent(ctx, weknora.CreateRemoteAgentInput{
-		Name: input.Name, Description: input.Description, Config: input.Config,
+		Name: input.Name, Description: input.Description, Config: remoteCfg,
 	})
 	if err != nil {
 		return Item{}, err
 	}
 	item.RemoteID = remote.ID
+	item.Config = marshalConfig(platformCfg.AsMap())
 	if err := s.agents.Insert(ctx, item); err != nil {
 		_ = s.agentAPI.DeleteRemoteAgent(ctx, remote.ID)
 		if strings.Contains(err.Error(), "duplicate") || strings.Contains(err.Error(), "unique") {
@@ -122,6 +182,12 @@ func (s *Service) CreateAgent(ctx context.Context, actor Actor, input CreateInpu
 	item.RemoteID = ""
 	item.Writable = true
 	return item, nil
+}
+
+// ResolveMCPAuthMode returns the effective auth mode for an MCP catalog row.
+// Until sys_mcp_services.auth_mode exists, this is always shared unless callers pass a mode.
+func (s *Service) ResolveMCPAuthMode(item Item) string {
+	return NormalizeMCPAuthMode(item.AuthMode)
 }
 
 func (s *Service) CreateMCP(ctx context.Context, actor Actor, input CreateInput) (Item, error) {
@@ -136,15 +202,22 @@ func (s *Service) CreateMCP(ctx context.Context, actor Actor, input CreateInput)
 	if transport == "" {
 		transport = "sse"
 	}
+	authMode := NormalizeMCPAuthMode(input.AuthMode)
+	remoteAuth := ""
+	if authMode == MCPAuthModeUserOAuth {
+		remoteAuth = "oauth"
+	}
 	remote, err := s.mcpAPI.CreateRemoteMCPService(ctx, weknora.CreateRemoteMCPInput{
 		Name: input.Name, Description: input.Description, Enabled: true,
-		TransportType: transport, URL: input.URL,
+		TransportType: transport, URL: input.URL, AuthType: remoteAuth,
 	})
 	if err != nil {
 		return Item{}, err
 	}
 	item.RemoteID = remote.ID
 	item.TransportType = transport
+	item.URL = strings.TrimSpace(input.URL)
+	item.AuthMode = authMode
 	if err := s.mcp.Insert(ctx, item); err != nil {
 		_ = s.mcpAPI.DeleteRemoteMCPService(ctx, remote.ID)
 		if strings.Contains(err.Error(), "duplicate") || strings.Contains(err.Error(), "unique") {
@@ -155,6 +228,293 @@ func (s *Service) CreateMCP(ctx context.Context, actor Actor, input CreateInput)
 	item.RemoteID = ""
 	item.Writable = true
 	return item, nil
+}
+
+func (s *Service) UpdateAgent(ctx context.Context, actor Actor, id string, input UpdateInput) (Item, error) {
+	item, err := s.writable(ctx, s.agents, actor, id)
+	if err != nil {
+		return Item{}, err
+	}
+	name := strings.TrimSpace(input.Name)
+	desc := strings.TrimSpace(input.Description)
+	if name == "" || utf8.RuneCountInString(name) > 100 {
+		return Item{}, invalid("名称长度必须在 1 到 100 个字符之间")
+	}
+	if utf8.RuneCountInString(desc) > 500 {
+		return Item{}, invalid("描述不能超过 500 个字符")
+	}
+	if item.RemoteID == "" || s.agentAPI == nil {
+		return Item{}, notReady("WeKnora 未配置")
+	}
+	rawCfg := input.Config
+	if rawCfg == nil {
+		rawCfg = map[string]any{}
+		_ = json.Unmarshal(item.Config, &rawCfg)
+	}
+	platformCfg, err := NormalizePlatformAgentConfig(rawCfg)
+	if err != nil {
+		return Item{}, err
+	}
+	remoteCfg, err := s.toRemoteAgentConfig(ctx, actor, platformCfg)
+	if err != nil {
+		return Item{}, err
+	}
+	if _, err := s.agentAPI.UpdateRemoteAgent(ctx, item.RemoteID, weknora.CreateRemoteAgentInput{
+		Name: name, Description: desc, Config: remoteCfg,
+	}); err != nil {
+		return Item{}, err
+	}
+	item.Name = name
+	item.Description = desc
+	item.Config = marshalConfig(platformCfg.AsMap())
+	item.Updater = actor.Username
+	item.UpdateTime = time.Now().UTC()
+	if item.ScopeType == scoped.ScopePersonal {
+		shares := []string{}
+		for _, uid := range input.ShareUserIDs {
+			uid = strings.TrimSpace(uid)
+			if uid == "" || uid == actor.UserID {
+				continue
+			}
+			shares = append(shares, uid)
+		}
+		item.ShareUserIDs = shares
+	}
+	if err := s.agents.Update(ctx, item); err != nil {
+		if strings.Contains(err.Error(), "duplicate") || strings.Contains(err.Error(), "unique") {
+			return Item{}, conflict("同一归属下已有同名智能体")
+		}
+		return Item{}, err
+	}
+	item.RemoteID = ""
+	item.Writable = true
+	return item, nil
+}
+
+func (s *Service) CopyAgent(ctx context.Context, actor Actor, id string, input CopyInput) (Item, error) {
+	source, err := s.visible(ctx, s.agents, actor, id)
+	if err != nil {
+		return Item{}, err
+	}
+	if source.RemoteID == "" || s.agentAPI == nil {
+		return Item{}, notReady("WeKnora 未配置")
+	}
+	remote, err := s.agentAPI.CopyRemoteAgent(ctx, source.RemoteID)
+	if err != nil {
+		return Item{}, err
+	}
+	scopeType := strings.TrimSpace(input.ScopeType)
+	if scopeType == "" {
+		scopeType = scoped.ScopePersonal
+	}
+	createIn := CreateInput{
+		Name: strings.TrimSpace(input.Name), Description: source.Description,
+		ScopeType: scopeType, ScopeID: input.ScopeID, TenantIDs: input.TenantIDs, ShareUserIDs: input.ShareUserIDs,
+	}
+	if createIn.Name == "" {
+		createIn.Name = strings.TrimSpace(remote.Name)
+	}
+	if createIn.Name == "" {
+		createIn.Name = source.Name + "（副本）"
+	}
+	if len(createIn.TenantIDs) == 0 {
+		createIn.TenantIDs = source.TenantIDs
+	}
+	if scopeType != scoped.ScopePersonal && !actor.CanManage {
+		_ = s.agentAPI.DeleteRemoteAgent(ctx, remote.ID)
+		return Item{}, forbidden("租户/组织/角色智能体需要管理权限")
+	}
+	item, err := s.prepareCreate(ctx, actor, createIn)
+	if err != nil {
+		_ = s.agentAPI.DeleteRemoteAgent(ctx, remote.ID)
+		return Item{}, err
+	}
+	item.RemoteID = remote.ID
+	item.Config = source.Config
+	item.Description = source.Description
+	if err := s.agents.Insert(ctx, item); err != nil {
+		_ = s.agentAPI.DeleteRemoteAgent(ctx, remote.ID)
+		if strings.Contains(err.Error(), "duplicate") || strings.Contains(err.Error(), "unique") {
+			return Item{}, conflict("同一归属下已有同名智能体")
+		}
+		return Item{}, err
+	}
+	item.RemoteID = ""
+	item.Writable = true
+	return item, nil
+}
+
+func (s *Service) UpdateMCP(ctx context.Context, actor Actor, id string, input UpdateInput) (Item, error) {
+	item, err := s.writable(ctx, s.mcp, actor, id)
+	if err != nil {
+		return Item{}, err
+	}
+	name := strings.TrimSpace(input.Name)
+	desc := strings.TrimSpace(input.Description)
+	url := strings.TrimSpace(input.URL)
+	if name == "" || utf8.RuneCountInString(name) > 100 {
+		return Item{}, invalid("名称长度必须在 1 到 100 个字符之间")
+	}
+	if utf8.RuneCountInString(desc) > 500 {
+		return Item{}, invalid("描述不能超过 500 个字符")
+	}
+	if url == "" {
+		return Item{}, invalid("请填写 MCP 服务地址")
+	}
+	transport := strings.TrimSpace(input.TransportType)
+	if transport == "" {
+		transport = item.TransportType
+	}
+	if transport != "sse" && transport != "http-streamable" {
+		return Item{}, invalid("工具箱仅支持 MCP（sse / http-streamable）")
+	}
+	authMode := NormalizeMCPAuthMode(input.AuthMode)
+	if item.RemoteID == "" || s.mcpAPI == nil {
+		return Item{}, notReady("WeKnora 未配置")
+	}
+	updates := map[string]any{
+		"name": name, "description": desc, "transport_type": transport, "url": url, "enabled": true,
+	}
+	if authMode == MCPAuthModeUserOAuth {
+		updates["auth_config"] = map[string]any{"auth_type": "oauth"}
+	}
+	if _, err := s.mcpAPI.UpdateRemoteMCPService(ctx, item.RemoteID, updates); err != nil {
+		return Item{}, err
+	}
+	item.Name = name
+	item.Description = desc
+	item.URL = url
+	item.TransportType = transport
+	item.AuthMode = authMode
+	item.Updater = actor.Username
+	item.UpdateTime = time.Now().UTC()
+	if item.ScopeType == scoped.ScopePersonal {
+		shares := []string{}
+		for _, uid := range input.ShareUserIDs {
+			uid = strings.TrimSpace(uid)
+			if uid == "" || uid == actor.UserID {
+				continue
+			}
+			shares = append(shares, uid)
+		}
+		item.ShareUserIDs = shares
+	}
+	if err := s.mcp.Update(ctx, item); err != nil {
+		if strings.Contains(err.Error(), "duplicate") || strings.Contains(err.Error(), "unique") {
+			return Item{}, conflict("同一归属下已有同名 MCP")
+		}
+		return Item{}, err
+	}
+	item.RemoteID = ""
+	item.Writable = true
+	return item, nil
+}
+
+func (s *Service) PutMCPCredentials(ctx context.Context, actor Actor, id string, values map[string]string) (weknora.MCPCredentialsStatus, error) {
+	item, err := s.writable(ctx, s.mcp, actor, id)
+	if err != nil {
+		return weknora.MCPCredentialsStatus{}, err
+	}
+	if NormalizeMCPAuthMode(item.AuthMode) != MCPAuthModeShared {
+		return weknora.MCPCredentialsStatus{}, invalid("仅 shared 模式可写入静态凭证；user_oauth 请走用户授权")
+	}
+	if item.RemoteID == "" || s.mcpAPI == nil {
+		return weknora.MCPCredentialsStatus{}, notReady("MCP 远端不可用")
+	}
+	return s.mcpAPI.PutRemoteMCPCredentials(ctx, item.RemoteID, values)
+}
+
+func (s *Service) DeleteMCPCredential(ctx context.Context, actor Actor, id, field string) error {
+	item, err := s.writable(ctx, s.mcp, actor, id)
+	if err != nil {
+		return err
+	}
+	if NormalizeMCPAuthMode(item.AuthMode) != MCPAuthModeShared {
+		return invalid("仅 shared 模式可管理静态凭证")
+	}
+	if item.RemoteID == "" || s.mcpAPI == nil {
+		return notReady("MCP 远端不可用")
+	}
+	return s.mcpAPI.DeleteRemoteMCPCredential(ctx, item.RemoteID, field)
+}
+
+func (s *Service) RefreshMCPMetadata(ctx context.Context, actor Actor, id string) (map[string]any, error) {
+	item, err := s.writable(ctx, s.mcp, actor, id)
+	if err != nil {
+		return nil, err
+	}
+	if item.RemoteID == "" || s.mcpAPI == nil {
+		return nil, notReady("MCP 远端不可用")
+	}
+	return s.mcpAPI.RefreshRemoteMCPMetadata(ctx, item.RemoteID)
+}
+
+func (s *Service) GetMCPMetadata(ctx context.Context, actor Actor, id string) (any, error) {
+	item, err := s.visible(ctx, s.mcp, actor, id)
+	if err != nil {
+		return nil, err
+	}
+	if item.RemoteID == "" || s.mcpAPI == nil {
+		return nil, notReady("MCP 远端不可用")
+	}
+	return s.mcpAPI.GetRemoteMCPMetadata(ctx, item.RemoteID)
+}
+
+func (s *Service) requireUserOAuthMCP(ctx context.Context, actor Actor, id string) (Item, error) {
+	item, err := s.visible(ctx, s.mcp, actor, id)
+	if err != nil {
+		return Item{}, err
+	}
+	if NormalizeMCPAuthMode(item.AuthMode) != MCPAuthModeUserOAuth {
+		return Item{}, invalid("该 MCP 未启用用户 OAuth（auth_mode 须为 user_oauth）")
+	}
+	if item.RemoteID == "" || s.mcpAPI == nil {
+		return Item{}, notReady("MCP 远端不可用")
+	}
+	return item, nil
+}
+
+// GetMCPOAuthStatus returns the current principal's OAuth state (ctx must carry External Token).
+func (s *Service) GetMCPOAuthStatus(ctx context.Context, actor Actor, id, authorizationAttempt string) (weknora.MCPOAuthStatus, error) {
+	item, err := s.requireUserOAuthMCP(ctx, actor, id)
+	if err != nil {
+		return weknora.MCPOAuthStatus{}, err
+	}
+	return s.mcpAPI.GetRemoteMCPOAuthStatus(ctx, item.RemoteID, authorizationAttempt)
+}
+
+// StartMCPOAuthAuthorize builds WeKnora authorize-url for the current principal.
+// frontendRedirect is where WeKnora sends the browser after its own /mcp-oauth/callback.
+func (s *Service) StartMCPOAuthAuthorize(ctx context.Context, actor Actor, id, frontendRedirect string) (weknora.MCPAuthorizeURLResult, error) {
+	item, err := s.requireUserOAuthMCP(ctx, actor, id)
+	if err != nil {
+		return weknora.MCPAuthorizeURLResult{}, err
+	}
+	redirectURI := weknora.MCPCallbackRedirectURI(s.weknoraBaseURL)
+	if redirectURI == "" {
+		return weknora.MCPAuthorizeURLResult{}, notReady("未配置 WeKnora 地址，无法发起 OAuth")
+	}
+	return s.mcpAPI.CreateRemoteMCPAuthorizeURL(ctx, item.RemoteID, redirectURI, frontendRedirect)
+}
+
+// RevokeMCPOAuthToken drops the current principal's OAuth token for this MCP.
+func (s *Service) RevokeMCPOAuthToken(ctx context.Context, actor Actor, id string) error {
+	item, err := s.requireUserOAuthMCP(ctx, actor, id)
+	if err != nil {
+		return err
+	}
+	return s.mcpAPI.RevokeRemoteMCPOAuthToken(ctx, item.RemoteID)
+}
+
+func marshalConfig(cfg map[string]any) json.RawMessage {
+	if cfg == nil {
+		return json.RawMessage(`{}`)
+	}
+	raw, err := json.Marshal(cfg)
+	if err != nil {
+		return json.RawMessage(`{}`)
+	}
+	return raw
 }
 
 func (s *Service) DeleteAgent(ctx context.Context, actor Actor, id string) error {

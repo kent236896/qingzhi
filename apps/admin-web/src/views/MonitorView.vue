@@ -42,11 +42,15 @@ const alertColumns = [
 ]
 
 function stateTheme(state: string) {
-  return state === 'up' ? 'success' : 'danger'
+  if (state === 'up') return 'success'
+  if (state === 'disabled') return 'default'
+  return 'danger'
 }
 
 function stateLabel(state: string) {
-  return state === 'up' ? '正常' : '不可用'
+  if (state === 'up') return '正常'
+  if (state === 'disabled') return '未配置'
+  return '不可用'
 }
 
 function levelTheme(level: string) {
@@ -105,6 +109,9 @@ onUnmounted(() => {
           </t-card>
           <t-card :bordered="false" title="Redis">
             <t-tag :theme="stateTheme(overview.service.redis)" variant="light">{{ stateLabel(overview.service.redis) }}</t-tag>
+          </t-card>
+          <t-card :bordered="false" title="WeKnora">
+            <t-tag :theme="stateTheme(overview.service.weknora)" variant="light">{{ stateLabel(overview.service.weknora) }}</t-tag>
           </t-card>
           <t-card :bordered="false" title="未恢复告警">
             <strong class="metric-value">{{ overview.alerts.length }}</strong>

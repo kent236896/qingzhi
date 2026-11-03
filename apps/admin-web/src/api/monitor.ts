@@ -4,6 +4,7 @@ export interface ServiceState {
   api: string
   database: string
   redis: string
+  weknora: string
 }
 
 export interface Traffic {

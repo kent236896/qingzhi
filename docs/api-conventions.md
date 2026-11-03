@@ -46,8 +46,10 @@ WeKnora 空间级长期记忆配置在 `GET/PUT /api/v1/weknora/memory-config`�
 智能体、工具箱（仅 MCP）与产物接口：
 
 - `GET /api/v1/catalog/options`：创建表单选项（租户 / 组织 / 角色 / 用户）。
-- `GET/POST /api/v1/agents`、`DELETE /api/v1/agents/{id}`：需 `agent:query`；列表按个人 / 租户 / 组织 / 角色（及个人分享）过滤；创建个人智能体不需 `agent:manage`，租户 / 组织 / 角色需 `agent:manage`。远端 WeKnora agent id 不下发。
-- `GET/POST /api/v1/toolbox/mcp`、`DELETE /api/v1/toolbox/mcp/{id}`、`POST .../test`：需 `toolbox:query`；仅支持 MCP 传输 `sse` / `http-streamable`；可见性与写权限规则同智能体（`toolbox:manage`）。
+- `GET/POST /api/v1/agents`、`PUT /api/v1/agents/{id}`、`POST /api/v1/agents/{id}/copy`、`DELETE /api/v1/agents/{id}`：需 `agent:query`；列表按个人 / 租户 / 组织 / 角色（及个人分享）过滤；创建/更新个人智能体不需 `agent:manage`，租户 / 组织 / 角色需 `agent:manage`。复制默认落到当前用户个人归属。远端 WeKnora agent id 不下发。
+- 智能体 `config`（存 `sys_agents.config_json`，响应回传）：`agent_mode`（`quick-answer`|`smart-reasoning`）、`agent_type`（推理下 `custom`|`rag-qa`|`wiki-qa`|`hybrid-rag-wiki`）、`system_prompt`、`kb_selection_mode`/`knowledge_base_ids`（平台知识库 UUID；KB **禁止** `all`）、`mcp_selection_mode`（`none`|`all`|`selected`，仅智能推理）/`mcp_ids`（`selected` 时平台 MCP UUID）、`web_search_enabled`、`multi_turn_enabled`、`memory_enabled`、`retrieve_kb_only_when_mentioned`、`temperature`、`max_iterations`。创建/更新时服务端校验可见性：KB/MCP 映射为 WeKnora `knowledge_bases`/`mcp_services`；MCP `all` 展开为当前可见已同步 MCP 的 `selected` 列表（不直传 WeKnora 空间级 all，避免越权）。
+- `GET/POST /api/v1/toolbox/mcp`、`PUT .../{id}`、`DELETE .../{id}`、`POST .../test`、`PUT .../credentials`、`DELETE .../credentials/{field}`、`GET|POST .../metadata[/refresh]`：需 `toolbox:query`；仅支持 MCP 传输 `sse` / `http-streamable`；`auth_mode` 为 `shared`（默认，静态凭证仅可写）或 `user_oauth`（凭证接口拒绝）。可见性与写权限规则同智能体（`toolbox:manage`）。凭证密钥不下发前端。
+- `GET /api/v1/toolbox/mcp/{id}/oauth/status`、`POST .../oauth/authorize-url`、`DELETE .../oauth/token`：需 `toolbox:query`；仅 `auth_mode=user_oauth`；服务端签发 External Token 调 WeKnora。`redirect_uri` 固定为 WeKnora `{WEKNORA_BASE_URL}/api/v1/mcp-oauth/callback`（不复制回调实现）；`frontend_redirect` 默认回工作台 `/toolbox`。状态可带 `authorization_attempt` 轮询。
 - `GET/DELETE /api/v1/artifacts`：需 `artifact:query`；按当前用户 External User Token 列出/删除会话产物（非目录式创建）。
 - `GET/DELETE /api/v1/admin/artifacts`：运维全局视图；删除需 `artifact:manage`。
 
@@ -55,9 +57,9 @@ WeKnora 空间级长期记忆配置在 `GET/PUT /api/v1/weknora/memory-config`�
 
 - `GET /api/v1/chat/knowledge-bases`：当前用户可见知识库（本地 id / name / description / scope_type）。
 - `GET /api/v1/chat/sessions`：分页会话列表（**以平台 `chat_session_owners` 归属表为准**，不返回管理员视角的全局上游列表）；关键词搜索由前端本地过滤。
-- `POST /api/v1/chat/sessions`：创建会话（上游创建成功后写入归属映射；映射失败则尽力删除上游孤立会话）。
-- `PUT /api/v1/chat/sessions/{id}` / `DELETE` / `GET .../messages` / `POST .../ask|stop`：先校验当前用户拥有该会话，再代理上游；越权统一 404「会话不存在或无权访问」。
-- `POST /api/v1/chat/sessions/{id}/ask`：SSE 知识问答。body：`query` + 平台 `knowledge_base_ids`；会话归属 + 每个知识库 `CanView` 均通过后才映射远程 ID；不可见/不存在统一 404；本阶段 `agent_enabled=false`。
+- `POST /api/v1/chat/sessions`：创建会话。可选 body `agent_id`（平台 `sys_agents.id`）；创建前校验可见性，成功后写入 `chat_session_owners.agent_id`；映射失败则尽力删除上游孤立会话。会话创建后智能体绑定不可改（需新开会话）。
+- `PUT /api/v1/chat/sessions/{id}` / `DELETE` / `GET .../messages` / `POST .../ask|stop`：先校验当前用户拥有该会话，再代理上游；越权统一 404「会话不存在或无权访问」。列表/详情回传 `agent_id`。
+- `POST /api/v1/chat/sessions/{id}/ask`：SSE。body：`query` + 可选平台 `knowledge_base_ids`。若会话绑定了 `agent_id`：解析 `weknora_agent_id` 后走用户面 `agent-chat`（允许空知识库）；否则走 `knowledge-chat` 且 `agent_enabled=false`（至少一个知识库，且每个 `CanView` 通过后才映射远程 ID）。不可见/不存在统一 404。
 
 平台侧会话隔离见 [security/data-isolation-audit.md](security/data-isolation-audit.md)。个人记忆隔离与代理见 [weknora-memory.md](weknora-memory.md)。
 
@@ -92,10 +94,10 @@ WeKnora 空间级长期记忆配置在 `GET/PUT /api/v1/weknora/memory-config`�
 - `GET/POST /api/v1/dict-data`，`GET/PATCH/DELETE /api/v1/dict-data/{dataId}`。`GET` 必须带 `dict_type`。同一类型下 `value` 唯一。`color_type` 可为空，或为 `default`、`primary`、`success`、`info`、`warning`、`danger`。
 - `GET /api/v1/dicts/{dictType}` 返回该类型下状态正常的数据；类型停用时返回空数组。权限标识为 `system:dict:query|create|update|delete`。
 - `GET /api/v1/security/login-logs` 查询登录日志。`result`：`0` 成功、`1` 凭证失败、`2` 锁定。日志不记录密码。连续凭证失败达到安全策略阈值后，窗口期内拒绝登录。
-- `GET /api/v1/security/operate-logs` 查询已登录用户的写操作。只保存方法、路径、状态和耗时，不保存请求体。
+- `GET /api/v1/security/operate-logs` 查询已登录用户的写操作。只保存方法、路径、状态和耗时，不保存请求体。模块映射含：`/agents`→智能体、`/toolbox`→MCP工具箱、`/chat`→对话、`/knowledge`→知识库；动作含 OAuth授权/撤销、问答、停止生成、复制、密钥、测试、刷新元数据。
 - `GET /api/v1/security/permission-logs` 查询角色菜单、角色用户、数据权限部门和数据范围的变更前后内容。
 - `GET/PATCH /api/v1/security/policy` 读取或更新全局安全策略。密码长度限制在 6 到 32。`login_fail_limit` 为 0 时不锁定。创建和修改账号密码时按该策略校验。权限标识为 `system:login-log:query`、`system:operate-log:query`、`system:permission-log:query`、`system:security-policy:query|update`。
-- `GET /api/v1/monitor/overview` 返回 API、数据库和 Redis 连通性，窗口内的请求量、错误、超时和响应时间，CPU、内存、磁盘，当前防护参数，以及未恢复告警。健康检查和监控接口自身不计入该窗口。
+- `GET /api/v1/monitor/overview` 返回 API、数据库、Redis 与 WeKnora 连通性（未配置时 `weknora=disabled`），窗口内的请求量、错误、超时和响应时间，CPU、内存、磁盘，当前防护参数，以及未恢复告警。WeKnora 不可用产生 `service/weknora` 警告级告警，**不**影响 `/health/ready`。健康检查和监控接口自身不计入该窗口。
 - `GET /api/v1/monitor/alerts` 分页查询告警历史，`status` 可取 `firing` 或 `resolved`。条件消失后告警自动变为已恢复。权限标识为 `system:monitor:query`。
 - `GET/POST /api/v1/tenants/{tenantId}/roles`，`GET/PATCH/DELETE /api/v1/tenants/{tenantId}/roles/{roleId}`。角色按租户隔离。类型用 `1` 表示系统、`2` 表示自定义。`data_scope`：`1` 全部、`2` 自定义、`3` 本部门、`4` 本部门及以下、`5` 仅本人。
 - `GET/PUT /api/v1/tenants/{tenantId}/roles/{roleId}/menus` 覆盖角色菜单；`GET/PUT .../depts` 覆盖自定义数据权限部门；`GET/PUT .../users` 覆盖角色用户。角色用户必须已是该租户成员。

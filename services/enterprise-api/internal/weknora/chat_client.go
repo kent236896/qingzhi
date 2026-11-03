@@ -16,10 +16,12 @@ import (
 )
 
 // ChatSession is a WeKnora conversation container.
+// AgentID is a Qingzhi platform field (sys_agents.id) when listing via chat owners; not from WeKnora.
 type ChatSession struct {
 	ID          string `json:"id"`
 	Title       string `json:"title"`
 	Description string `json:"description"`
+	AgentID     string `json:"agent_id,omitempty"`
 	CreatedAt   string `json:"created_at"`
 	UpdatedAt   string `json:"updated_at"`
 }
@@ -53,6 +55,15 @@ type ChatReference struct {
 type KnowledgeQARequest struct {
 	Query            string   `json:"query"`
 	KnowledgeBaseIDs []string `json:"knowledge_base_ids"`
+	AgentEnabled     bool     `json:"agent_enabled"`
+	AgentID          string   `json:"agent_id,omitempty"`
+}
+
+// AgentQARequest is the body for POST /api/v1/agent-chat/{session_id}.
+type AgentQARequest struct {
+	Query            string   `json:"query"`
+	AgentID          string   `json:"agent_id"`
+	KnowledgeBaseIDs []string `json:"knowledge_base_ids,omitempty"`
 	AgentEnabled     bool     `json:"agent_enabled"`
 }
 
@@ -165,19 +176,31 @@ func (c *HTTPClient) StopSession(ctx context.Context, sessionID, messageID strin
 // OpenKnowledgeChatStream POSTs knowledge-chat and returns the raw SSE response body.
 // Caller must close the body. Uses a client without blanket Timeout so streams can run.
 func (c *HTTPClient) OpenKnowledgeChatStream(ctx context.Context, sessionID string, req KnowledgeQARequest) (*http.Response, error) {
+	return c.openChatStream(ctx, "/api/v1/knowledge-chat/"+url.PathEscape(strings.TrimSpace(sessionID)), req)
+}
+
+// OpenAgentChatStream POSTs agent-chat (user plane; requires External Token in ctx).
+func (c *HTTPClient) OpenAgentChatStream(ctx context.Context, sessionID string, req AgentQARequest) (*http.Response, error) {
+	req.AgentID = strings.TrimSpace(req.AgentID)
+	if req.AgentID == "" {
+		return nil, fmt.Errorf("agent_id is required for agent-chat")
+	}
+	req.AgentEnabled = true
+	return c.openChatStream(ctx, "/api/v1/agent-chat/"+url.PathEscape(strings.TrimSpace(sessionID)), req)
+}
+
+func (c *HTTPClient) openChatStream(ctx context.Context, path string, body any) (*http.Response, error) {
 	_, baseURL, apiKey := c.session()
 	if baseURL == "" || apiKey == "" {
 		return nil, fmt.Errorf("weknora client is not configured")
 	}
-	sessionID = strings.TrimSpace(sessionID)
-	if sessionID == "" {
+	if strings.TrimSpace(path) == "" || strings.HasSuffix(path, "/") {
 		return nil, fmt.Errorf("session id is required")
 	}
-	payload, err := json.Marshal(req)
+	payload, err := json.Marshal(body)
 	if err != nil {
 		return nil, err
 	}
-	path := "/api/v1/knowledge-chat/" + url.PathEscape(sessionID)
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+path, bytes.NewReader(payload))
 	if err != nil {
 		return nil, err
@@ -202,9 +225,9 @@ func (c *HTTPClient) OpenKnowledgeChatStream(ctx context.Context, sessionID stri
 		return nil, err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 		_ = resp.Body.Close()
-		return nil, &APIError{StatusCode: resp.StatusCode, Body: strings.TrimSpace(string(body))}
+		return nil, &APIError{StatusCode: resp.StatusCode, Body: strings.TrimSpace(string(raw))}
 	}
 	return resp, nil
 }
